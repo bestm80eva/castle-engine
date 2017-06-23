@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -276,8 +276,11 @@ begin
   LightsEnabled := 0;
   if LightsEnabled >= GLFeatures.MaxLights then Exit;
 
-  AddList(Lights1);
-  if LightsEnabled >= GLFeatures.MaxLights then Exit;
+  if Lights1 <> nil then
+  begin
+    AddList(Lights1);
+    if LightsEnabled >= GLFeatures.MaxLights then Exit;
+  end;
 
   if Lights2 <> nil then
   begin

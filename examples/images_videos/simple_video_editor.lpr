@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -306,6 +306,8 @@ begin
 end;
 
 begin
+  LoadAnimatedGifs := true;
+
   Window := TCastleWindowCustom.Create(Application);
 
   try

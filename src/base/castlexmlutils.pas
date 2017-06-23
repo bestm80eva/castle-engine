@@ -1,5 +1,5 @@
 {
-  Copyright 2012-2016 Michalis Kamburelis.
+  Copyright 2012-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -18,7 +18,7 @@ unit CastleXMLUtils;
 
 interface
 
-uses SysUtils, DOM,
+uses SysUtils, DOM, CastleDownload,
   CastleUtils, CastleColors, CastleVectors;
 
 type
@@ -27,7 +27,31 @@ type
 
   TXMLElementIterator = class;
 
+  TDOMNodeHelper = class helper for TDOMNode
+  private
+    function GetNodeValue8: string;
+    procedure SetNodeValue8(const S: string);
+  public
+    { Node name (attribute, element or such name).
+      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the NodeName
+      from FPC DOM unit that is a WideString (DOMString). }
+    function NodeName8: string;
+
+    { Node value (like an attribute value).
+      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the NodeValue
+      from FPC DOM unit that is a WideString (DOMString). }
+    property NodeValue8: string read GetNodeValue8 write SetNodeValue8;
+  end;
+
+  TDOMCharacterDataHelper = class helper for TDOMCharacterData
+    { String data.
+      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the Data
+      from FPC DOM unit that is a WideString (DOMString). }
+    function Data8: string;
+  end;
+
   TDOMElementHelper = class helper for TDOMElement
+  public
 
     { ------------------------------------------------------------------------
       Get an optional attribute to a "var" parameter, returns if found. }
@@ -346,7 +370,12 @@ type
 
       If there are no text data nodes, e.g. if the element is empty,
       it returns empty string without raising any error. }
-    function TextData: DOMString;
+    function TextData: string;
+
+    { Tag name (element name).
+      Expressed as an 8-bit string (in UTF-8 encoding), contrary to the TagName
+      from FPC DOM unit that is a WideString (DOMString). }
+    function TagName8: string;
   end;
 
   { Iterate over all children elements of given XML element.
@@ -408,7 +437,7 @@ type
   { Iterate over children elements of given XML element, that have matching TagName. }
   TXMLElementFilteringIterator = class(TXMLElementIterator)
   private
-    FTagName: string;
+    FTagName: DOMString;
   public
     constructor Create(ParentElement: TDOMElement; const TagName: string);
     function GetNext: boolean; override;
@@ -508,7 +537,7 @@ function DOMGetChildElement(const Element: TDOMElement;
   const ChildName: string; RaiseOnError: boolean): TDOMElement;
   deprecated 'use TDOMElement helper called ChildElement';
 
-function DOMGetTextData(const Element: TDOMElement): DOMString;
+function DOMGetTextData(const Element: TDOMElement): string;
   deprecated 'use TDOMElement helper called TextData';
 
 { Gets a child of Element named ChildName, and gets text data within
@@ -552,7 +581,31 @@ procedure URLWriteXML(Doc: TXMLDocument; const URL: String; const BlowFishKeyPhr
 implementation
 
 uses Classes, XMLRead, XMLWrite, BlowFish,
-  CastleDownload, CastleURIUtils, CastleClassUtils;
+  CastleURIUtils, CastleClassUtils;
+
+{ TDOMNodeHelper ------------------------------------------------------------- }
+
+function TDOMNodeHelper.NodeName8: string;
+begin
+  Result := UTF8Encode(NodeName);
+end;
+
+function TDOMNodeHelper.GetNodeValue8: string;
+begin
+  Result := UTF8Encode(NodeValue);
+end;
+
+procedure TDOMNodeHelper.SetNodeValue8(const S: string);
+begin
+  NodeValue := UTF8Decode(S);
+end;
+
+{ TDOMCharacterDataHelper ---------------------------------------------------- }
+
+function TDOMCharacterDataHelper.Data8: string;
+begin
+  Result := UTF8Encode(Data);
+end;
 
 { ----------------------------------------------------------------------------
   TDOMElementHelper:
@@ -562,13 +615,13 @@ function TDOMElementHelper.AttributeString(const AttrName: string; var Value: st
 var
   AttrNode: TDOMNode;
 begin
-  AttrNode := Attributes.GetNamedItem(AttrName);
+  AttrNode := Attributes.GetNamedItem(UTF8decode(AttrName));
   Result := AttrNode <> nil;
   if Result then
   begin
     Check(AttrNode.NodeType = ATTRIBUTE_NODE,
       'All element attributes must have ATTRIBUTE_NODE');
-    Value := (AttrNode as TDOMAttr).Value;
+    Value := UTF8Encode((AttrNode as TDOMAttr).Value);
   end;
 end;
 
@@ -836,32 +889,32 @@ end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: string);
 begin
-  SetAttribute(AttrName, Value);
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(Value));
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: boolean);
 begin
-  SetAttribute(AttrName, SysUtils.BoolToStr(Value, true));
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(SysUtils.BoolToStr(Value, true)));
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: Integer);
 begin
-  SetAttribute(AttrName, IntToStr(Value));
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(IntToStr(Value)));
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: Int64);
 begin
-  SetAttribute(AttrName, IntToStr(Value));
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(IntToStr(Value)));
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: Cardinal);
 begin
-  SetAttribute(AttrName, IntToStr(Value));
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(IntToStr(Value)));
 end;
 
 procedure TDOMElementHelper.AttributeSet(const AttrName: string; const Value: Single);
 begin
-  SetAttribute(AttrName, FloatToStr(Value));
+  SetAttribute(UTF8Decode(AttrName), UTF8Decode(FloatToStr(Value)));
 end;
 
 { ------------------------------------------------------------------------
@@ -881,7 +934,7 @@ begin
   begin
     Node := Children.Item[I];
     if (Node.NodeType = ELEMENT_NODE) and
-       ((Node as TDOMElement).TagName = ChildName) then
+       ((Node as TDOMElement).TagName = UTF8Decode(ChildName)) then
     begin
       if Result = nil then
         Result := TDOMElement(Node) else
@@ -898,7 +951,7 @@ begin
     raise EDOMChildElementError.CreateFmt('Child "%s" not found', [ChildName])
 end;
 
-function TDOMElementHelper.TextData: DOMString;
+function TDOMElementHelper.TextData: string;
 
 {
   It concatenates all text data nodes that are direct children
@@ -926,7 +979,7 @@ begin
   begin
     Node := Children.Item[I];
     case Node.NodeType of
-      TEXT_NODE: Result += (Node as TDOMText).Data;
+      TEXT_NODE: Result += UTF8Encode((Node as TDOMText).Data);
       ELEMENT_NODE: raise Exception.CreateFmt(
         'Child elements not allowed within element <%s>, but found %s',
           [TagName, (Node as TDOMElement).TagName]);
@@ -942,6 +995,11 @@ end;
 function TDOMElementHelper.ChildrenIterator(const ChildName: string): TXMLElementIterator;
 begin
   Result := TXMLElementFilteringIterator.Create(Self, ChildName);
+end;
+
+function TDOMElementHelper.TagName8: string;
+begin
+  Result := UTF8Encode(TagName);
 end;
 
 { TXMLElementIterator -------------------------------------------------------- }
@@ -992,7 +1050,7 @@ end;
 constructor TXMLElementFilteringIterator.Create(ParentElement: TDOMElement; const TagName: string);
 begin
   inherited Create(ParentElement);
-  FTagName := TagName;
+  FTagName := UTF8Decode(TagName);
 end;
 
 function TXMLElementFilteringIterator.GetNext: boolean;
@@ -1033,7 +1091,7 @@ begin
       if ChildNode.NodeType = CDATA_SECTION_NODE then
       begin
         Result := true;
-        FCurrent := (ChildNode as TDOMCDataSection).Data;
+        FCurrent := UTF8Encode((ChildNode as TDOMCDataSection).Data);
         Break;
       end;
     end;
@@ -1084,7 +1142,7 @@ begin
   Result := Element.ChildElement(ChildName, RaiseOnError);
 end;
 
-function DOMGetTextData(const Element: TDOMElement): DOMString;
+function DOMGetTextData(const Element: TDOMElement): string;
 begin
   Result := Element.TextData;
 end;
@@ -1157,9 +1215,18 @@ end;
 procedure URLReadXML(out Doc: TXMLDocument; const URL: String);
 var
   Stream: TStream;
+  StreamOptions: TStreamOptions;
+  Gzipped: boolean;
 begin
   Doc := nil; // clean "out" param at start, just like ReadXMLFile
-  Stream := Download(URL, []);
+
+  //guess gzipped based on file extension
+  StreamOptions := [];
+  URIMimeType(URL, Gzipped);
+  if Gzipped then
+    Include(StreamOptions, soGzip);
+
+  Stream := Download(URL, StreamOptions);
   try
     ReadXMLFile(Doc, Stream);
   finally FreeAndNil(Stream) end;
@@ -1169,7 +1236,7 @@ function URLReadXML(const URL: String): TXMLDocument;
 begin
   try
     // URLReadXML and ReadXMLFile nil the parameter when there's no need to free it
-    URLReadXML(Result, URL);
+    URLReadXML(Result, URL);     //this one will automatically take care of gzipping
   except FreeAndNil(Result); raise; end;
 end;
 
@@ -1198,8 +1265,16 @@ end;
 procedure URLWriteXML(Doc: TXMLDocument; const URL: String);
 var
   Stream: TStream;
+  StreamOptions: TSaveStreamOptions;
+  gzipped: boolean;
 begin
-  Stream := URLSaveStream(URL);
+  //guess gzipped based on file extension
+  StreamOptions := [];
+  URIMimeType(URL, Gzipped);
+  if Gzipped then
+    Include(StreamOptions, ssoGzip);
+
+  Stream := URLSaveStream(URL, StreamOptions);
   try
     WriteXMLFile(Doc, Stream);
   finally FreeAndNil(Stream) end;

@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -102,10 +102,11 @@ function Iff(boolval: boolean; trueval, falseval: char)    : char;     overload;
 { Some helpful version stuff ------------------------------------------------ }
 
 const
+  { Castle Game Engine version. }
   CastleEngineVersion = {$I castleversion.inc};
 
 {$ifdef FPC}
-{ Describe FPC version. In the form 'version.release.patch'.
+{ FPC version. In the form 'version.release.patch'.
 
   This is actually a constant (for every run of a program it has
   always the same value) but I can't declare it as a Pascal constant
@@ -248,13 +249,17 @@ end;
 function SCastleEngineProgramHelpSuffix(const DisplayApplicationName: string;
   const Version: string; WrapLines: boolean): string;
 begin
-  Result :=
-    DisplayApplicationName + ' version ' + Version + '.' +nl+
-    'Author: Michalis Kamburelis, aka Kambi <michalis.kambi@gmail.com>' +nl+
-    'See http://castle-engine.sourceforge.net/ for latest versions' +
-    Iff(WrapLines, nl + ' ', '') +
-    ' of this program, sources, documentation etc.' +nl+
-    'Compiled with ' + SCompilerDescription +'.';
+  if Version <> '' then
+    Result := DisplayApplicationName + ' version ' + Version + '.' + NL + NL
+  else
+    Result := '';
+  Result := Result +
+    'Developed using Castle Game Engine.' + NL +
+    'See https://castle-engine.sourceforge.io/ for latest versions' +
+    Iff(WrapLines, NL, '') +
+    'of this program, sources and documentation.' + NL +
+    NL +
+    'Compiled with ' + SCompilerDescription + '.';
 end;
 
 procedure OSCheck(TrueValue: boolean);

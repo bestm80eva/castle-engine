@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -88,8 +88,6 @@
     property TransformScale: Single read GetTransformScale;
 
     function FogType: TFogType;
-
-    {$I auto_generated_node_helpers/x3dnodes_x3dfogobject.inc}
   end;
 
   { 3D background of a scene, comprised of sky and ground colors (gradients)
@@ -596,7 +594,7 @@ var
       ftLinear: F := (FogVisibilityRangeScaled - Distance) / FogVisibilityRangeScaled;
       ftExp   : F := Exp(-Distance / (FogVisibilityRangeScaled - Distance));
     end;
-    Color := Vector_Init_Lerp(F, FdColor.Value, Color);
+    Color := Lerp(F, FdColor.Value, Color);
   end;
 
 var

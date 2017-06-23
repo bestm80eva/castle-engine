@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -203,24 +203,31 @@ type
       that it doesn't make Box empty. }
     procedure ExpandMe(const AExpand: TVector3Single); overload;
 
-    function Expand(const AExpand: Single): TBox3D; overload;
-    function Expand(const AExpand: TVector3Single): TBox3D; overload;
+    function Grow(const AExpand: Single): TBox3D; overload;
+    function Grow(const AExpand: TVector3Single): TBox3D; overload;
+
+    function Expand(const AExpand: Single): TBox3D; overload; deprecated 'use Grow, consistent with TRectangle.Grow';
+    function Expand(const AExpand: TVector3Single): TBox3D; overload; deprecated 'use Grow, consistent with TRectangle.Grow';
 
     { Check is the point inside the box.
       Always false if Box is empty (obviously, no point is inside an empty box).
 
       @groupBegin }
-    function PointInside(const Point: TVector3Single): boolean; overload;
-    function PointInside(const Point: TVector3Double): boolean; overload;
+    function Contains(const Point: TVector3Single): boolean; overload;
+    function Contains(const Point: TVector3Double): boolean; overload;
+    function PointInside(const Point: TVector3Single): boolean; overload; deprecated 'use Contains method, which is consistent with TRectangle';
+    function PointInside(const Point: TVector3Double): boolean; overload; deprecated 'use Contains method, which is consistent with TRectangle';
     { @groupEnd }
 
     { Is the 2D point inside the 2D projection of the box, ignores the Z coord of box. }
-    function PointInside2D(const Point: TVector2Single): boolean;
+    function Contains2D(const Point: TVector2Single): boolean;
+    function PointInside2D(const Point: TVector2Single): boolean; deprecated 'use Contains2d method';
 
     { Is the 2D point inside the 2D projection of the box.
       2D projection (of point and box) is obtained by rejecting
       the IgnoreIndex coordinate (must be 0, 1 or 2). }
-    function PointInside2D(const Point: TVector3Single; const IgnoreIndex: Integer): boolean;
+    function Contains2D(const Point: TVector3Single; const IgnoreIndex: Integer): boolean;
+    function PointInside2D(const Point: TVector3Single; const IgnoreIndex: Integer): boolean; deprecated 'use Contains2d method';
 
     { Sum two TBox3D values. This calculates the smallest box that encloses
       both Box1 and Box2. You can also use + operator. }
@@ -495,7 +502,7 @@ type
 
     { Compare two bounding boxes based
       on their Z coordinates, suitable for depth sorting in 2D.
-      Follows the algorithm documented at @link(TBlendingSort.bs3D).
+      Follows the algorithm documented at @link(TBlendingSort.bs2D).
       Returns -1 if A < B, 1 if A > B, 0 if A = B.
 
       Using this with a typical sorting function will result
@@ -776,8 +783,10 @@ begin
  Data[1, 2] += AExpand[2];
 end;
 
-function TBox3D.Expand(const AExpand: Single): TBox3D;
+function TBox3D.Grow(const AExpand: Single): TBox3D;
 begin
+  if IsEmpty then Exit(Empty);
+
   Result.Data[0, 0] := Data[0, 0] - AExpand;
   Result.Data[0, 1] := Data[0, 1] - AExpand;
   Result.Data[0, 2] := Data[0, 2] - AExpand;
@@ -787,8 +796,10 @@ begin
   Result.Data[1, 2] := Data[1, 2] + AExpand;
 end;
 
-function TBox3D.Expand(const AExpand: TVector3Single): TBox3D;
+function TBox3D.Grow(const AExpand: TVector3Single): TBox3D;
 begin
+  if IsEmpty then Exit(Empty);
+
   Result.Data[0, 0] := Data[0, 0] - AExpand[0];
   Result.Data[0, 1] := Data[0, 1] - AExpand[1];
   Result.Data[0, 2] := Data[0, 2] - AExpand[2];
@@ -798,32 +809,52 @@ begin
   Result.Data[1, 2] := Data[1, 2] + AExpand[2];
 end;
 
-function TBox3D.PointInside(const Point: TVector3Single): boolean;
+function TBox3D.Expand(const AExpand: Single): TBox3D;
+begin
+  Result := Grow(AExpand);
+end;
+
+function TBox3D.Expand(const AExpand: TVector3Single): TBox3D;
+begin
+  Result := Grow(AExpand);
+end;
+
+function TBox3D.Contains(const Point: TVector3Single): boolean;
 begin
   if IsEmpty then Exit(false);
   Result :=
     (Data[0, 0] <= Point[0]) and (Point[0] <=  Data[1, 0]) and
     (Data[0, 1] <= Point[1]) and (Point[1] <=  Data[1, 1]) and
     (Data[0, 2] <= Point[2]) and (Point[2] <=  Data[1, 2]);
+end;
+
+function TBox3D.Contains(const Point: TVector3Double): boolean;
+begin
+  if IsEmpty then Exit(false);
+  Result :=
+    (Data[0, 0] <= Point[0]) and (Point[0] <=  Data[1, 0]) and
+    (Data[0, 1] <= Point[1]) and (Point[1] <=  Data[1, 1]) and
+    (Data[0, 2] <= Point[2]) and (Point[2] <=  Data[1, 2]);
+end;
+
+function TBox3D.PointInside(const Point: TVector3Single): boolean;
+begin
+  Result := Contains(Point);
 end;
 
 function TBox3D.PointInside(const Point: TVector3Double): boolean;
 begin
-  if IsEmpty then Exit(false);
-  Result :=
-    (Data[0, 0] <= Point[0]) and (Point[0] <=  Data[1, 0]) and
-    (Data[0, 1] <= Point[1]) and (Point[1] <=  Data[1, 1]) and
-    (Data[0, 2] <= Point[2]) and (Point[2] <=  Data[1, 2]);
+  Result := Contains(Point);
 end;
 
-{ Separated from PointInside2D, to not slowdown it by implicit
+{ Separated from Contains2D, to not slowdown it by implicit
   try/finally section because we use string. }
-procedure PointInside2D_InvalidIgnoreIndex;
+procedure Contains2D_InvalidIgnoreIndex;
 begin
-  raise EInternalError.Create('Invalid IgnoreIndex for TBox3D.PointInside2D');
+  raise EInternalError.Create('Invalid IgnoreIndex for TBox3D.Contains2D');
 end;
 
-function TBox3D.PointInside2D(const Point: TVector2Single): boolean;
+function TBox3D.Contains2D(const Point: TVector2Single): boolean;
 begin
   if IsEmpty then Exit(false);
   Result :=
@@ -831,7 +862,7 @@ begin
     (Data[0, 1] <= Point[1]) and (Point[1] <=  Data[1, 1]);
 end;
 
-function TBox3D.PointInside2D(const Point: TVector3Single;
+function TBox3D.Contains2D(const Point: TVector3Single;
   const IgnoreIndex: Integer): boolean;
 begin
   if IsEmpty then Exit(false);
@@ -845,8 +876,19 @@ begin
     2: Result :=
          (Data[0, 0] <= Point[0]) and (Point[0] <=  Data[1, 0]) and
          (Data[0, 1] <= Point[1]) and (Point[1] <=  Data[1, 1]);
-    else PointInside2D_InvalidIgnoreIndex;
+    else Contains2D_InvalidIgnoreIndex;
   end;
+end;
+
+function TBox3D.PointInside2D(const Point: TVector2Single): boolean;
+begin
+  Result := Contains2D(Point);
+end;
+
+function TBox3D.PointInside2D(const Point: TVector3Single;
+  const IgnoreIndex: Integer): boolean;
+begin
+  Result := Contains2D(Point, IgnoreIndex);
 end;
 
 procedure TBox3D.Add(const box2: TBox3D);
@@ -1144,7 +1186,7 @@ function TBox3D.TryRayEntrance(
   out Entrance: TVector3Single; out EntranceDistance: Single;
   const RayOrigin, RayDirection: TVector3Single): boolean;
 begin
-  if PointInside(RayOrigin) then
+  if Contains(RayOrigin) then
   begin
     Entrance := RayOrigin;
     EntranceDistance := 0;
@@ -1157,7 +1199,7 @@ function TBox3D.TryRayEntrance(
   out Entrance: TVector3Single;
   const RayOrigin, RayDirection: TVector3Single): boolean;
 begin
-  if PointInside(RayOrigin) then
+  if Contains(RayOrigin) then
   begin
     Entrance := RayOrigin;
     result := true;
@@ -1328,14 +1370,28 @@ function TBox3D.IsTriangleCollision(const Triangle: TTriangle3Single): boolean;
 { The same comments about precision as for IsCenteredBox3DPlaneCollision apply also here. }
 {$define EqualityEpsilon := Box3DPlaneCollisionEqualityEpsilon}
 
+{$ifdef CASTLE_HAS_DOUBLE_PRECISION}
+{ When CASTLE_HAS_DOUBLE_PRECISION is defined, do these calculations using Double precision. }
+{$define TScalar := Double}
+{$define TVector3 := TVector3Double}
+{$define TVector4 := TVector4Double}
+{$define TTriangle3 := TTriangle3Double}
+{$else}
+{ When CASTLE_HAS_DOUBLE_PRECISION is not defined, do these calculations using Single precision. }
+{$define TScalar := Single}
+{$define TVector3 := TVector3Single}
+{$define TVector4 := TVector4Single}
+{$define TTriangle3 := TTriangle3Single}
+{$endif}
+
 var
-  TriangleMoved: TTriangle3Double;
-  BoxHalfSize: TVector3Double;
+  TriangleMoved: TTriangle3;
+  BoxHalfSize: TVector3;
 
   { ======================== X-tests ======================== }
-  function AXISTEST_X01(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_X01(const a, b, fa, fb: TScalar): boolean;
   var
-    p0, p2, rad, min, max: Double;
+    p0, p2, rad, min, max: TScalar;
   begin
     p0 := a * TriangleMoved[0][1] - b * TriangleMoved[0][2];
     p2 := a * TriangleMoved[2][1] - b * TriangleMoved[2][2];
@@ -1345,9 +1401,9 @@ var
     Result := (min > rad + EqualityEpsilon) or (max < -rad - EqualityEpsilon);
   end;
 
-  function AXISTEST_X2(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_X2(const a, b, fa, fb: TScalar): boolean;
   var
-    p0, p1, rad, min, max: Double;
+    p0, p1, rad, min, max: TScalar;
   begin
     p0 := a * TriangleMoved[0][1] - b * TriangleMoved[0][2];
     p1 := a * TriangleMoved[1][1] - b * TriangleMoved[1][2];
@@ -1358,9 +1414,9 @@ var
   end;
 
   { ======================== Y-tests ======================== }
-  function AXISTEST_Y02(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_Y02(const a, b, fa, fb: TScalar): boolean;
   var
-    p0, p2, rad, min, max: Double;
+    p0, p2, rad, min, max: TScalar;
   begin
     p0 := -a * TriangleMoved[0][0] + b * TriangleMoved[0][2];
     p2 := -a * TriangleMoved[2][0] + b * TriangleMoved[2][2];
@@ -1370,9 +1426,9 @@ var
     Result := (min > rad + EqualityEpsilon) or (max < -rad - EqualityEpsilon);
   end;
 
-  function AXISTEST_Y1(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_Y1(const a, b, fa, fb: TScalar): boolean;
   var
-    p0, p1, rad, min, max: Double;
+    p0, p1, rad, min, max: TScalar;
   begin
     p0 := -a * TriangleMoved[0][0] + b * TriangleMoved[0][2];
     p1 := -a * TriangleMoved[1][0] + b * TriangleMoved[1][2];
@@ -1383,9 +1439,9 @@ var
   end;
 
   { ======================== Z-tests ======================== }
-  function AXISTEST_Z12(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_Z12(const a, b, fa, fb: TScalar): boolean;
   var
-    p1, p2, rad, min, max: Double;
+    p1, p2, rad, min, max: TScalar;
   begin
     p1 := a * TriangleMoved[1][0] - b * TriangleMoved[1][1];
     p2 := a * TriangleMoved[2][0] - b * TriangleMoved[2][1];
@@ -1395,9 +1451,9 @@ var
     Result := (min > rad + EqualityEpsilon) or (max < -rad - EqualityEpsilon);
   end;
 
-  function AXISTEST_Z0(const a, b, fa, fb: Double): boolean;
+  function AXISTEST_Z0(const a, b, fa, fb: TScalar): boolean;
   var
-    p0, p1, rad, min, max: Double;
+    p0, p1, rad, min, max: TScalar;
   begin
     p0 := a * TriangleMoved[0][0] - b * TriangleMoved[0][1];
     p1 := a * TriangleMoved[1][0] - b * TriangleMoved[1][1];
@@ -1408,13 +1464,13 @@ var
   end;
 
 var
-  BoxCenter: TVector3Double;
+  BoxCenter: TVector3;
   I: Integer;
-  TriangleEdges: array [0..2] of TVector3Double;
-  EdgeAbs: TVector3Double;
-  min, max: Double;
-  Plane: TVector4Double;
-  PlaneDir: TVector3Double absolute Plane;
+  TriangleEdges: array [0..2] of TVector3;
+  EdgeAbs: TVector3;
+  min, max: TScalar;
+  Plane: TVector4;
+  PlaneDir: TVector3 absolute Plane;
 begin
   if IsEmpty then
     Exit(false);
@@ -1428,9 +1484,9 @@ begin
 
   { calculate TriangleMoved (Triangle shifted by -BoxCenter,
     so that we can treat the BoxHalfSize as centered around origin) }
-  TriangleMoved[0] := VectorSubtract(Vector3Double(Triangle[0]), BoxCenter);
-  TriangleMoved[1] := VectorSubtract(Vector3Double(Triangle[1]), BoxCenter);
-  TriangleMoved[2] := VectorSubtract(Vector3Double(Triangle[2]), BoxCenter);
+  TriangleMoved[0] := VectorSubtract({$ifdef CASTLE_HAS_DOUBLE_PRECISION}Vector3Double{$endif}(Triangle[0]), BoxCenter);
+  TriangleMoved[1] := VectorSubtract({$ifdef CASTLE_HAS_DOUBLE_PRECISION}Vector3Double{$endif}(Triangle[1]), BoxCenter);
+  TriangleMoved[2] := VectorSubtract({$ifdef CASTLE_HAS_DOUBLE_PRECISION}Vector3Double{$endif}(Triangle[2]), BoxCenter);
 
   { calculate TriangleMoved edges }
   TriangleEdges[0] := VectorSubtract(TriangleMoved[1], TriangleMoved[0]);
@@ -1491,6 +1547,9 @@ begin
   Result := true; { box and triangle overlaps }
 end;
 
+{$undef TScalar}
+{$undef TVector3}
+{$undef TTriangle3}
 {$undef EqualityEpsilon}
 
 procedure TBox3D.BoundingSphere(
@@ -1737,7 +1796,7 @@ begin
     end;
   end;
 
-  if PointInside(P) then
+  if Contains(P) then
     MinDistance := 0;
 
   { Because of floating point inaccuracy, MinDistance may be larger

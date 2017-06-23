@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -31,7 +31,7 @@
   @unorderedList(
     @item(Nodes can be loaded or saved from the stream in a classic or
       XML encoding.
-      For classic encoding we use a lexer in X3DLexer unit.
+      For classic encoding we use a lexer in CastleInternalX3DLexer unit.
       For XML encoding, we use standard FPC DOM unit.
       Loading and saving of fields (in both encodings) is inside X3DFields unit.
 
@@ -173,26 +173,27 @@ unit X3DNodes;
 interface
 
 uses SysUtils, FGL, Classes, XMLRead, DOM,
-  CastleVectors, X3DLexer, CastleUtils, CastleClassUtils,
+  CastleVectors, CastleRectangles,
+  CastleInternalX3DLexer, CastleUtils, CastleClassUtils,
   X3DFields, CastleBoxes, CastleImages, CastleColors,
   CastleVideos, X3DTime, Castle3D, CastleMaterialProperties,
   CastleScript, X3DCastleScript, CastleInternalOctree, CastleCompositeImage,
   CastleTextureImages, CastleKeysMouse, CastleSoundEngine, CastleStringUtils,
-  CastleTextureFontData, CastleGenericLists, CastleShaders, CastleRays;
+  CastleTextureFontData, CastleGenericLists, CastleShaders, CastleProjection;
 
 {$define read_interface}
 
 const
-  DefaultMaterial_1AmbientColor: TVector3Single = (0.2, 0.2, 0.2);
-  DefaultMaterialAmbientIntensity = 0.2;
-  DefaultMaterialDiffuseColor: TVector3Single = (0.8, 0.8, 0.8);
-  DefaultMaterialSpecularColor: TVector3Single = (0, 0, 0);
-  DefaultMaterialEmissiveColor: TVector3Single = (0, 0, 0);
-  DefaultMaterialShininess = 0.2;
-  DefaultMaterialTransparency = 0.0;
-  DefaultMaterialMirror = 0.0;
-  DefaultMaterialReflSpecularExp = 1000000;
-  DefaultMaterialTransSpecularExp = 1000000;
+  DefaultMaterial_1AmbientColor: TVector3Single = (0.2, 0.2, 0.2) deprecated 'use TMaterialInfo.DefaultAmbientColor';
+  DefaultMaterialAmbientIntensity = 0.2 deprecated 'use TMaterialInfo.DefaultAmbientIntensity';
+  DefaultMaterialDiffuseColor: TVector3Single = (0.8, 0.8, 0.8) deprecated 'use TMaterialInfo.DefaultDiffuseColor';
+  DefaultMaterialSpecularColor: TVector3Single = (0, 0, 0) deprecated 'use TMaterialInfo.DefaultSpecularColor';
+  DefaultMaterialEmissiveColor: TVector3Single = (0, 0, 0) deprecated 'use TMaterialInfo.DefaultEmissiveColor';
+  DefaultMaterialShininess = 0.2 deprecated 'use TMaterialInfo.DefaultShininess';
+  DefaultMaterialTransparency = 0.0 deprecated 'use TMaterialInfo.DefaultTransparency';
+  DefaultMaterialMirror = 0.0 deprecated 'use TMaterialInfo.DefaultMirror';
+  DefaultMaterialReflSpecularExp = 1000000 deprecated 'use TMaterialInfo.DefaultReflSpecularExp';
+  DefaultMaterialTransSpecularExp = 1000000 deprecated 'use TMaterialInfo.DefaultTransSpecularExp';
 
 { -----------------------------------------------------------------------------
   Looong "type" declaration below, with many class definitions depending
@@ -230,6 +231,7 @@ type
   TX3DNodeProc = procedure (Node: TX3DNode) of object;
   TX3DNodeSearchProc = function (Node: TX3DNode): Pointer of object;
 
+  { Node types used with @link(TVRML1State). }
   TVRML1StateNode =
   (
     vsCoordinate3,
@@ -243,24 +245,73 @@ type
     vsTextureCoordinate2
   );
 
-  { Nodes that will be saved inside TX3DGraphTraverseState.LastNodes.
-    These are nodes that affect how following nodes are rendered,
-    mostly for VRML 1.0 "state". }
-  TTraverseStateLastNodes = record
-    case Integer of
-      0: ( Nodes: array [TVRML1StateNode] of TX3DNode; );
-      1: ( Coordinate3: TCoordinate3Node_1;
-           ShapeHints: TShapeHintsNode_1;
-           FontStyle: TFontStyleNode_1;
-           Material: TMaterialNode_1;
-           MaterialBinding: TMaterialBindingNode_1;
-           Normal: TNormalNode;
-           NormalBinding: TNormalBindingNode_1;
-           Texture2: TTexture2Node_1;
-           TextureCoordinate2: TTextureCoordinate2Node_1;
-           { additions here must be synchronized with additions to
-             TVRML1StateNode }
-         );
+  { Nodes that are saved during VRML/X3D traversing.
+    Used for @link(TX3DGraphTraverseState.VRML1State).
+    These nodes affect some following nodes in the graph, in VRML 1.0.
+
+    They are never @nil after a @link(TX3DNode.Traverse) operation.
+    the traversing code always takes care to initialize
+    them to default nodes at the beginning.
+
+    For all nodes enumerated here: it's guaranteed
+    they don't affect the state (@link(TX3DGraphTraverseState)) during traversing
+    (that is, they don't do anything special in
+    TX3DNode.BeforeTraverse / TX3DNode.MiddleTraverse / TX3DNode.AfterTraverse).
+    So it's guaranteed that changing some field's value of a node
+    within TVRML1State affects @italic(only)
+    the shapes that have given node inside State.VRML1State.
+    TCastleSceneCore.InternalChangedField depends on that. }
+  TVRML1State = class
+  strict private
+    function GetNode(const StateNode: TVRML1StateNode): TX3DNode;
+    procedure SetNode(const StateNode: TVRML1StateNode; const Node: TX3DNode);
+    procedure SetNodeCore(const StateNode: TVRML1StateNode; const Node: TX3DNode);
+  public
+    Owned: array [TVRML1StateNode] of boolean;
+
+    Coordinate3: TCoordinate3Node_1;
+    ShapeHints: TShapeHintsNode_1;
+    FontStyle: TFontStyleNode_1;
+    Material: TMaterialNode_1;
+    MaterialBinding: TMaterialBindingNode_1;
+    Normal: TNormalNode;
+    NormalBinding: TNormalBindingNode_1;
+    Texture2: TTexture2Node_1;
+    TextureCoordinate2: TTextureCoordinate2Node_1;
+    { Additions here must be synchronized with additions to TVRML1StateNode }
+
+    { Destructor automatically frees and nils all @link(Nodes) that are @link(Owned). }
+    destructor Destroy; override;
+
+    { Last nodes that occured when visiting this VRML 1.0 graph,
+      indexed by TVRML1StateNode. }
+    property Nodes [StateNode: TVRML1StateNode]: TX3DNode read GetNode write SetNode;
+
+    { Create and assign all @link(Nodes). All nodes become @link(Owned). }
+    procedure CreateNodes;
+
+    { Assign from Source.
+
+      During doing this, old nodes are freed if they were owned.
+      New nodes are not owned.
+
+      This takes care of checking for each TVRML1StateNode
+      if the old node is equal to new one. If yes, then the node
+      if not freed (regardless of "owned" status), and the "owned"
+      status is left as-is (not chaned to false).
+      This way calling something like @code(MyState.Assign(MyState))
+      is a valid and harmless operation. }
+    procedure Assign(const Source: TVRML1State);
+
+    { Set the node, and make it owned by this class.
+      Contrast this with @code(Nodes[StateNode] := Node) that makes
+      the node @italic(not) owned. This is just a shortcut for
+      @longCode(#
+        Nodes[StateNode] := Node;
+        Owned[StateNode] := true;
+      #)
+    }
+    procedure SetOwnNode(const StateNode: TVRML1StateNode; const Node: TX3DNode);
   end;
 
   { Light source instance in the scene. References VRML/X3D
@@ -322,9 +373,10 @@ type
       to multiply / accumulate values outside of the (0, 1) range
       during calculations. OpenGL also clamps only at the end. }
     function Contribution(
-      const Point: TVector3Single; const PointPlaneNormal: TVector4Single;
+      const Point: TVector3Single; const PointPlaneNormal: TVector3Single;
       State: TX3DGraphTraverseState;
-      const CamPosition: TVector3Single): TVector3Single;
+      const CamPosition: TVector3Single;
+      const DiffuseTextureColor: TCastleColorRGB): TVector3Single;
 
     { Light contribution, without knowing the camera or full material.
       We have a 3D vertex, we know it lies on a plane with given normal,
@@ -334,7 +386,8 @@ type
 
       The specular lighting part must be simply ignored in this case.  }
     function ContributionCameraIndependent(
-      const Point, PointPlaneNormal, MaterialDiffuseColor: TVector3Single): TVector3Single;
+      const Point, PointPlaneNormal, MaterialDiffuseColor: TVector3Single;
+      const DiffuseTextureColor: TCastleColorRGB): TVector3Single;
   end;
   PLightInstance = ^TLightInstance;
 
@@ -365,59 +418,23 @@ type
   end;
 
   TPointingDeviceSensorList = class;
+  TMaterialInfo = class;
 
   { Current state (transformation and such) when traversing VRML/X3D graph.
 
     For VRML/X3D >= 2.0 this could be simpler, as VRML/X3D >= 2.0 doesn't need
-    to keep track for example of the @link(LastNodes).
+    to keep track for example of the @link(VRML1State).
     But we want to still handle VRML 1.0, 100% correctly, so here we are:
     this class contains whole state needed for any VRML/X3D version. }
   TX3DGraphTraverseState = class
   private
-    FLastNodes: TTraverseStateLastNodes;
-    FOwnedLastNodes: array [TVRML1StateNode] of boolean;
+    FVRML1State: TVRML1State;
     procedure CommonCreate;
-
-    { Sets FLastNodes to NewLastNodes.
-
-      During doing this, old FLastNodes are freed if they were owned.
-      New nodes are not owned.
-
-      This takes care of checking for each TVRML1StateNode
-      if the old node is equal to new one. If yes, then the node
-      if not freed (regardless of "owned" status), and the "owned"
-      status is left as-is (not chaned to false).
-      This way calling thing like @code(AssignLastNodes(FLastNodes)),
-      is a valid harmless operation. }
-    procedure AssignLastNodes(const NewLastNodes: TTraverseStateLastNodes);
   public
-    { Nodes that are saved during VRML/X3D traversing.
-      These nodes affect some following nodes in the graph,
-      mostly for VRML 1.0.
-
-      They are never @nil (traversing code must always take care to initialize
-      them to default nodes at the beginning).
-
-      Note that TX3DGraphTraverseState instance doesn't have to own
-      these nodes (doesn't free them, and doesn't track of when they are
-      freed). E.g. nodes' TX3DNode.ParentsCount doesn't take into account
-      that they are owned by this state.
-      Although for some tricks (but not during normal VRML/X3D traversing)
-      some nodes are owned, by using SetLastNodes with OwnNode = @true.
-
-      For nodes that are within TraverseStateLastNodesClasses
-      (and thus are stored inside LastNodes): it's guaranteed
-      they don't affect the state (of this class) during traversing
-      (that is, they don't do anything special in
-      TX3DNode.BeforeTraverse / TX3DNode.MiddleTraverse / TX3DNode.AfterTraverse).
-      So it's guaranteed that changing some field's value of a node
-      within TraverseStateLastNodesClasses affects @italic(only)
-      the shapes that have given node inside State.LastNodes.
-      TCastleSceneCore.ChangedField depends on that. }
-    property LastNodes: TTraverseStateLastNodes read FLastNodes;
-
-    procedure SetLastNodes(const StateNode: TVRML1StateNode;
-      const Node: TX3DNode; const OwnNode: boolean);
+    { Nodes that affect how following nodes are rendered,
+      mostly for VRML 1.0 state. }
+    property VRML1State: TVRML1State read FVRML1State;
+    property LastNodes: TVRML1State read FVRML1State; deprecated 'use VRML1State';
   public
     { Lights active in this state.
 
@@ -479,7 +496,7 @@ type
     constructor CreateCopy(Source: TX3DGraphTraverseState);
 
     { Standard constructor.
-      Uses global StateDefaultNodes as default nodes for VRML 1.0 state.
+      Uses global VRML1DefaultState as default nodes for VRML1State.
       This makes it fast, and improves cache (more nodes have equal reference). }
     constructor Create;
 
@@ -500,17 +517,11 @@ type
     function Equals(SecondValue: TX3DGraphTraverseState;
       const IgnoreTransform: boolean): boolean; {$ifdef TOBJECT_HAS_EQUALS} reintroduce; {$endif}
 
-    { Returns texture node that should be used for nodes within this State.
+    { Diffuse (and alpha) texture that should be used for nodes within this State.
       Regardless of VRML/X3D version. May return multi-texture
       (TMultiTextureNode), or normal 2D texture (TAbstractTexture2DNode),
-      or some other TAbstractTextureNode descendant (cube map, 3d texture).
-
-      Details:
-      If ShapeNode <> nil, this returns texture node taken from
-      ShapeNode.Texture (note that it may be nil, if Apperance
-      of Appearance.Texture node is NULL in VRML).
-      Otherwise it returns texture from LastNodes.Texture2. }
-    function Texture: TAbstractTextureNode;
+      or some other TAbstractTextureNode descendant (cube map, 3d texture). }
+    function DiffuseAlphaTexture: TAbstractTextureNode;
 
     { Returns BlendMode for this state, or @nil if not present. }
     function BlendMode: TBlendModeNode;
@@ -606,19 +617,15 @@ type
 
     function AddClipPlane: PClipPlane;
 
-    { Calculate emission color of given shape.
+    { Material information at this state.
+      See TMaterialInfo for usage description.
+      Returns @nil when no node determines material properties
+      (which indicates white unlit look).
 
-      This can be used by software renderers (ray-tracers etc.)
-      to calculate pixel color following VRML/X3D specifications.
-      Emission should be added to
-      TLightInstance.Contribution (for each light),
-      and resulting color should be processed by TFogNode.ApplyFog.
-
-      When LightingCalculationOn = @false we actually take diffuseColor
-      instead of emissiveColor. This is useful if you want to force
-      the scene completely unlit, usually diffuseColor is more useful for this
-      (since emissiveColor is often black on everything). }
-    function Emission(LightingCalculationOn: boolean): TVector3Single;
+      Returned TMaterialInfo is valid only as long as the underlying
+      Material or CommonSurfaceShader node exists.
+      Do not free it yourself, it will be automatically freed. }
+    function MaterialInfo: TMaterialInfo;
   end;
 
   { Stack of TX3DGraphTraverseState.
@@ -1349,8 +1356,16 @@ type
 
 { TX3DPrototype ------------------------------------------------------------- }
 
-  { }
-  EX3DPrototypeInstantiateError = class(Exception);
+  { Raised when there's a problem instantiating X3D prototype,
+    see @link(TX3DPrototypeNode.Instantiate).
+
+    User code usually doesn't see this exception, unless you call
+    @link(TX3DPrototypeNode.Instantiate) explicitly (but you usually don't).
+    In normal circumstances, the engine calls @link(TX3DPrototypeNode.Instantiate)
+    when necessary, and converts eventual EX3DPrototypeInstantiateError
+    exceptions into warnings (reported by
+    @link(TCastleApplicationProperties.OnWarning ApplicationProperties.OnWarning)). }
+  EX3DPrototypeInstantiateError = class(EX3DError);
 
   { Node with information about a VRML/X3D prototype.
 
@@ -1492,9 +1507,10 @@ type
           to correctly save using PrototypeInstanceSourceNode, instead
           of writing actual node contents.))
 
-      @raises(EX3DPrototypeInstantiateError if for some reason
+      @raises(EX3DPrototypeInstantiateError If for some reason
         the prototype cannot be instantiated.
-        Outside code should catch this and replace with ApplicationProperties.OnWarning, if possible.)
+        Outside code should catch this and replace with
+        ApplicationProperties.OnWarning, if possible.)
     }
     function Instantiate: TX3DNode;
   end;
@@ -1599,7 +1615,8 @@ type
 
 { TX3DRoute ----------------------------------------------------------------- }
 
-  { }
+  { Route makes a connection between two X3D events,
+    making the @italic(destination) event occur when the @italic(source) event happened. }
   TX3DRoute = class(TX3DFileItem)
   private
     FSourceNode: TX3DNode;
@@ -1675,7 +1692,7 @@ type
       do when parsed VRML route. It looks for given node name
       (in Names.Nodes, then Names.Imported),
       then it looks for field/event within this node,
-      and if everything is successfull --- sets route properties.
+      and if everything is successful --- sets route properties.
 
       If something goes wrong, WritelnWarning is generated
       and route ending is left unset.
@@ -1872,23 +1889,27 @@ type
     procedure Bind(const InlineName: string; Exported: TX3DNodeNames);
   end;
 
-  TX3DVersion = X3DLexer.TX3DVersion;
-  TX3DEncoding = X3DLexer.TX3DEncoding;
+  TX3DVersion = CastleInternalX3DLexer.TX3DVersion;
+  TX3DEncoding = CastleInternalX3DLexer.TX3DEncoding;
 
   {$I x3dnodes_load.inc}
 
-{ TraverseStateLastNodesClasses ---------------------------------------------- }
+{ VRML1StateClasses ---------------------------------------------------------- }
 
 const
-  { Classes corresponding to nodes on TTraverseStateLastNodes. }
-  TraverseStateLastNodesClasses :
-    array [TVRML1StateNode] of TX3DNodeClass =
-    ( TCoordinate3Node_1, TShapeHintsNode_1, TFontStyleNode_1,
-      TMaterialNode_1, TMaterialBindingNode_1, TNormalNode, TNormalBindingNode_1,
-      TTexture2Node_1, TTextureCoordinate2Node_1
-      { additions here must be synchronized with additions to
-        TTraverseStateLastNodes }
-    );
+  { Classes corresponding to nodes on TVRML1State. }
+  VRML1StateClasses: array [TVRML1StateNode] of TX3DNodeClass = (
+    TCoordinate3Node_1,
+    TShapeHintsNode_1,
+    TFontStyleNode_1,
+    TMaterialNode_1,
+    TMaterialBindingNode_1,
+    TNormalNode,
+    TNormalBindingNode_1,
+    TTexture2Node_1,
+    TTextureCoordinate2Node_1
+    { additions here must be synchronized with additions to TVRML1State }
+  );
 
 { TNodesManager ------------------------------------------------------------ }
 
@@ -1959,10 +1980,15 @@ var
     in this unit's initialization / finalization. }
   NodesManager: TNodesManager;
 
-  { Should be make a warning (using WritelnWarning) when loading data from
-    an URI with absolute path. This is quite useful if you want to
-    be able to move/copy the files to some other system/location,
-    as absolute paths prevent it. }
+  { Should we emit a warning when loading data from
+    an URI with an absolute filename, like @code(file:///c:/blah/myimage.png).
+    The warning is emitted using WritelnWarning.
+    This is quite useful, as usually you want to avoid using such URIs,
+    as they will probably not work on any other system than your own
+    (and they prevent you from easily moving the files to some other system/location).
+
+    In your data (X3D, VRML, Collada, OBJ materials...),
+    you should always use relative paths. }
   WarnAboutAbsoluteFilenames: boolean = true;
 
 { global procedures ---------------------------------------------------------- }
@@ -1971,19 +1997,13 @@ var
 {$I x3dnodes_encoding_xml.inc}
 {$I x3dnodes_save.inc}
 
-{ Create and assign all State.Nodes. }
-procedure TraverseState_CreateNodes(var StateNodes: TTraverseStateLastNodes);
-
-{ Free and nil all State.Nodes. }
-procedure TraverseState_FreeAndNilNodes(var StateNodes: TTraverseStateLastNodes);
-
 { Free all unused VRML/X3D nodes on the list, then free and @nil the list
   itself. }
 procedure X3DNodeList_FreeUnusedAndNil(var List: TX3DNodeList);
 
 const
   ProjectionTypeToStr: array [TProjectionType] of string =
-  ('Orthographic', 'Perspective');
+  ('Orthographic', 'Perspective', 'Frustum');
 
 const
   { Constants for @link(TAsciiTextNode_1.FdJustification).Value.
@@ -2072,8 +2092,8 @@ const
   { Latest X3D version supported. }
   X3DVersion: TX3DVersion = (Major: 3; Minor: 2);
 
-  xeClassic = X3DLexer.xeClassic;
-  xeXML = X3DLexer.xeXML;
+  xeClassic = CastleInternalX3DLexer.xeClassic;
+  xeXML = CastleInternalX3DLexer.xeXML;
 
 const
   { Minimal values for
@@ -2139,11 +2159,6 @@ const
   URNX3DNodes = 'urn:web3d:x3d:node:';
   { @groupEnd }
 
-  { URN used to indicate VRML / X3D nodes that are Castle Game Engine
-    extensions. }
-  URNKambiNodes = 'urn:castle-engine.sourceforge.net:node:';
-  URNKambiNodes2 = 'urn:vrmlengine.sourceforge.net:node:';
-
   { URN to indicate BitManagement nodes. This should work, according to
     http://www.bitmanagement.com/developer/contact/examples/layer/index.html
     example EXTERNPROTO. }
@@ -2189,6 +2204,10 @@ function KeyRange(Key: TSingleList;
   but checks if node is used first. }
 procedure FreeIfUnusedAndNil(var Obj);
 
+{ Does this URN indicate an X3D node that is a Castle Game Engine extension.
+  This is a helper for implementing @link(TX3DNode.URNMatching). }
+function URNMatchingCastle(const URN, ClassX3DType: string): boolean;
+
 {$undef read_interface}
 
 implementation
@@ -2212,7 +2231,7 @@ uses
   CastleTextureFont_DjvSerifBI_20,
   {$endif CASTLE_EMBED_ALL_3D_FONT_VARIATIONS}
 
-  Math, X3DLoad, CastleZStream, X3DCameraUtils,
+  Math, X3DLoad, CastleInternalZStream, X3DCameraUtils,
   CastleFilesUtils, StrUtils, CastleURIUtils, CastleUnicode,
   CastleLog, CastleScriptParser, CastleDataURI, URIParser, CastleDownload,
   CastleNURBS, CastleQuaternions, CastleCameras, CastleXMLUtils, CastleOpenDocument;
@@ -2248,15 +2267,15 @@ resourcestring
   end;
 }
 
-{$I x3dnodes_extrusion.inc}
-{$I x3dnodes_elevationgrid.inc}
+{$I x3dnodes_utils_extrusion.inc}
+{$I x3dnodes_utils_elevationgrid.inc}
+{$I x3dnodes_utils_cone_cylinder.inc}
+{$I x3dnodes_utils_sphere.inc}
+{$I x3dnodes_utils_box.inc}
 {$I x3dnodes_boundingboxes.inc}
 {$I x3dnodes_verticesandtrianglescounting.inc}
 {$I x3dnodes_coordpolygons.inc}
 {$I x3dnodes_eventsengine.inc}
-{$I x3dnodes_cone_cylinder.inc}
-{$I x3dnodes_sphere.inc}
-{$I x3dnodes_box.inc}
 {$I x3dnodes_save.inc}
 {$I x3dnodes_load.inc}
 {$I x3dnodes_encoding_classic.inc}
@@ -2343,6 +2362,7 @@ resourcestring
 {$I auto_generated_node_helpers/x3dnodes_colorinterpolator.inc}
 {$I auto_generated_node_helpers/x3dnodes_colorrgba.inc}
 {$I auto_generated_node_helpers/x3dnodes_colorsetinterpolator.inc}
+{$I auto_generated_node_helpers/x3dnodes_commonsurfaceshader.inc}
 {$I auto_generated_node_helpers/x3dnodes_composedcubemaptexture.inc}
 {$I auto_generated_node_helpers/x3dnodes_composedshader.inc}
 {$I auto_generated_node_helpers/x3dnodes_composedtexture3d.inc}
@@ -2561,7 +2581,6 @@ resourcestring
 {$I auto_generated_node_helpers/x3dnodes_x3ddragsensornode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3denvironmentalsensornode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3denvironmenttexturenode.inc}
-{$I auto_generated_node_helpers/x3dnodes_x3dfogobject.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dfollowernode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dfontstylenode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dgeometricpropertynode.inc}
@@ -2574,7 +2593,6 @@ resourcestring
 {$I auto_generated_node_helpers/x3dnodes_x3dlayoutnode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dlightnode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dmaterialnode.inc}
-{$I auto_generated_node_helpers/x3dnodes_x3dmetadataobject.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dnbodycollidablenode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dnbodycollisionspacenode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dnetworksensornode.inc}
@@ -2585,7 +2603,6 @@ resourcestring
 {$I auto_generated_node_helpers/x3dnodes_x3dparametricgeometrynode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dparticleemitternode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dparticlephysicsmodelnode.inc}
-{$I auto_generated_node_helpers/x3dnodes_x3dpickableobject.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dpicksensornode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dpointingdevicesensornode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dproductstructurechildnode.inc}
@@ -2605,22 +2622,116 @@ resourcestring
 {$I auto_generated_node_helpers/x3dnodes_x3dtimedependentnode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dtouchsensornode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dtriggernode.inc}
-{$I auto_generated_node_helpers/x3dnodes_x3durlobject.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dvertexattributenode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dviewpointnode.inc}
 {$I auto_generated_node_helpers/x3dnodes_x3dviewportnode.inc}
 
+{ TVRML1State ---------------------------------------------------- }
+
+function TVRML1State.GetNode(const StateNode: TVRML1StateNode): TX3DNode;
+begin
+  case StateNode of
+    vsCoordinate3       : Result := Coordinate3       ;
+    vsShapeHints        : Result := ShapeHints        ;
+    vsFontStyle         : Result := FontStyle         ;
+    vsMaterial          : Result := Material          ;
+    vsMaterialBinding   : Result := MaterialBinding   ;
+    vsNormal            : Result := Normal            ;
+    vsNormalBinding     : Result := NormalBinding     ;
+    vsTexture2          : Result := Texture2          ;
+    vsTextureCoordinate2: Result := TextureCoordinate2;
+    else raise EInternalError.Create('TVRML1State.GetNode: StateNode?');
+  end;
+end;
+
+procedure TVRML1State.SetNodeCore(
+  const StateNode: TVRML1StateNode; const Node: TX3DNode);
+begin
+  case StateNode of
+    vsCoordinate3       : TX3DNode(Coordinate3       ) := Node;
+    vsShapeHints        : TX3DNode(ShapeHints        ) := Node;
+    vsFontStyle         : TX3DNode(FontStyle         ) := Node;
+    vsMaterial          : TX3DNode(Material          ) := Node;
+    vsMaterialBinding   : TX3DNode(MaterialBinding   ) := Node;
+    vsNormal            : TX3DNode(Normal            ) := Node;
+    vsNormalBinding     : TX3DNode(NormalBinding     ) := Node;
+    vsTexture2          : TX3DNode(Texture2          ) := Node;
+    vsTextureCoordinate2: TX3DNode(TextureCoordinate2) := Node;
+    else raise EInternalError.Create('TVRML1State.SetNode: StateNode?');
+  end;
+end;
+
+procedure TVRML1State.SetNode(
+  const StateNode: TVRML1StateNode; const Node: TX3DNode);
+begin
+  if Nodes[StateNode] <> Node then
+  begin
+    Assert((Node = nil) or (Node is VRML1StateClasses[StateNode]));
+
+    if Owned[StateNode] then
+      Nodes[StateNode].Free;
+    SetNodeCore(StateNode, Node);
+    Owned[StateNode] := false;
+  end;
+end;
+
+procedure TVRML1State.CreateNodes;
+var
+  SN: TVRML1StateNode;
+begin
+  for SN := Low(SN) to High(SN) do
+  begin
+    Nodes[SN] := VRML1StateClasses[SN].Create;
+    Owned[SN] := true;
+  end;
+end;
+
+destructor TVRML1State.Destroy;
+
+  procedure FreeAndNilNodes;
+  var
+    SN: TVRML1StateNode;
+  begin
+    for SN := Low(SN) to High(SN) do
+    begin
+      if Owned[SN] then
+        Nodes[SN].Free;
+      SetNodeCore(SN, nil);
+    end;
+  end;
+
+begin
+  FreeAndNilNodes;
+  inherited;
+end;
+
+procedure TVRML1State.Assign(const Source: TVRML1State);
+var
+  SN: TVRML1StateNode;
+begin
+  for SN := Low(SN) to High(SN) do
+    Nodes[SN] := Source.Nodes[SN];
+end;
+
+procedure TVRML1State.SetOwnNode(const StateNode: TVRML1StateNode;
+  const Node: TX3DNode);
+begin
+  Nodes[StateNode] := Node;
+  Owned[StateNode] := true;
+end;
+
 { TLightInstance ------------------------------------------------------------- }
 
 function TLightInstance.Contribution(
-  const Point: TVector3Single; const PointPlaneNormal: TVector4Single;
+  const Point: TVector3Single; const PointPlaneNormal: TVector3Single;
   State: TX3DGraphTraverseState;
-  const CamPosition: TVector3Single): TVector3Single;
+  const CamPosition: TVector3Single;
+  const DiffuseTextureColor: TCastleColorRGB): TVector3Single;
 {$I x3dnodes_lightcontribution.inc}
 
 function TLightInstance.ContributionCameraIndependent(
-  const Point, PointPlaneNormal, MaterialDiffuseColor: TVector3Single)
-  :TVector3Single;
+  const Point, PointPlaneNormal, MaterialDiffuseColor: TVector3Single;
+  const DiffuseTextureColor: TCastleColorRGB): TVector3Single;
 {$define CAMERA_INDEP}
 {$I x3dnodes_lightcontribution.inc}
 {$undef CAMERA_INDEP}
@@ -2723,12 +2834,13 @@ end;
 
 var
   { Starting state nodes for TX3DGraphTraverseState.Create. }
-  StateDefaultNodes: TTraverseStateLastNodes;
+  VRML1DefaultState: TVRML1State;
 
 procedure TX3DGraphTraverseState.CommonCreate;
 begin
   inherited Create;
   PointingDeviceSensors := TPointingDeviceSensorList.Create(false);
+  FVRML1State := TVRML1State.Create;
 end;
 
 constructor TX3DGraphTraverseState.CreateCopy(Source: TX3DGraphTraverseState);
@@ -2755,24 +2867,16 @@ begin
   HumanoidInvertedTransform := IdentityMatrix4Single;
 
   TextureTransform := IdentityMatrix4Single;
-  AssignLastNodes(StateDefaultNodes);
+  FVRML1State.Assign(VRML1DefaultState);
 end;
 
 destructor TX3DGraphTraverseState.Destroy;
-var
-  SN: TVRML1StateNode;
 begin
-  for SN := Low(SN) to High(SN) do
-  begin
-    if FOwnedLastNodes[SN] then FLastNodes.Nodes[SN].Free;
-    FLastNodes.Nodes[SN] := nil;
-  end;
-
+  FreeAndNil(FVRML1State);
   FreeAndNil(Lights);
   FreeAndNil(PointingDeviceSensors);
   FreeAndNil(ClipPlanes);
   FreeAndNil(Effects);
-
   inherited;
 end;
 
@@ -2786,7 +2890,7 @@ begin
   HumanoidInvertedTransform := IdentityMatrix4Single;
 
   TextureTransform := IdentityMatrix4Single;
-  AssignLastNodes(StateDefaultNodes);
+  FVRML1State.Assign(VRML1DefaultState);
   ShapeNode := nil;
   InsideInline := 0;
   InsidePrototype := 0;
@@ -2819,7 +2923,7 @@ begin
   AssignTransform(Source);
 
   TextureTransform := Source.TextureTransform;
-  AssignLastNodes(Source.FLastNodes);
+  FVRML1State.Assign(Source.FVRML1State);
   ShapeNode := Source.ShapeNode;
   InsideInline := Source.InsideInline;
   InsidePrototype := Source.InsidePrototype;
@@ -2889,16 +2993,19 @@ begin
   if Result then
   begin
     for SN := Low(SN) to High(SN) do
-      if SecondValue.LastNodes.Nodes[SN] <> LastNodes.Nodes[SN] then
+      if SecondValue.VRML1State.Nodes[SN] <> VRML1State.Nodes[SN] then
         Exit(false);
   end;
 end;
 
-function TX3DGraphTraverseState.Texture: TAbstractTextureNode;
+function TX3DGraphTraverseState.DiffuseAlphaTexture: TAbstractTextureNode;
 begin
+  Result := nil;
   if ShapeNode = nil then
-    Result := LastNodes.Texture2 else
-    Result := ShapeNode.Texture;
+    Result := VRML1State.Texture2
+  else
+  if ShapeNode.Appearance <> nil then
+    Result := ShapeNode.Appearance.DiffuseAlphaTexture;
 end;
 
 function TX3DGraphTraverseState.BlendMode: TBlendModeNode;
@@ -2918,63 +3025,26 @@ begin
   end;
 end;
 
-procedure TX3DGraphTraverseState.SetLastNodes(const StateNode: TVRML1StateNode;
-  const Node: TX3DNode; const OwnNode: boolean);
-begin
-  if FLastNodes.Nodes[StateNode] <> Node then
-  begin
-    Assert(Node is TraverseStateLastNodesClasses[StateNode]);
-
-    if FOwnedLastNodes[StateNode] then
-      FreeAndNil(FLastNodes.Nodes[StateNode]);
-
-    FLastNodes.Nodes[StateNode] := Node;
-    FOwnedLastNodes[StateNode] := OwnNode;
-  end;
-end;
-
-procedure TX3DGraphTraverseState.AssignLastNodes(
-  const NewLastNodes: TTraverseStateLastNodes);
+function TX3DGraphTraverseState.MaterialInfo: TMaterialInfo;
 var
-  SN: TVRML1StateNode;
-begin
-  for SN := Low(SN) to High(SN) do
-    if FLastNodes.Nodes[SN] <> NewLastNodes.Nodes[SN] then
-    begin
-      if FOwnedLastNodes[SN] then FreeAndNil(FLastNodes.Nodes[SN]);
-      FOwnedLastNodes[SN] := false;
-      FLastNodes.Nodes[SN] := NewLastNodes.Nodes[SN];
-    end;
-end;
-
-function TX3DGraphTraverseState.Emission(LightingCalculationOn: boolean): TVector3Single;
-var
-  M1: TMaterialNode_1;
   M2: TMaterialNode;
+  SurfaceShader: TCommonSurfaceShaderNode;
 begin
   if ShapeNode <> nil then
   begin
-    M2 := ShapeNode.Material;
-    if M2 <> nil then
+    SurfaceShader := ShapeNode.CommonSurfaceShader;
+    if SurfaceShader <> nil then
+      Result := SurfaceShader.MaterialInfo
+    else
     begin
-      if LightingCalculationOn then
-        Result := M2.FdEmissiveColor.Value else
-        Result := M2.FdDiffuseColor.Value;
-    end else
-    begin
-      if LightingCalculationOn then
-        { Default VRML 2.0 Material.emissiveColor }
-        Result := ZeroVector3Single else
-        { Default VRML 2.0 Material.diffuseColor }
-        Result := Vector3Single(0.8, 0.8, 0.8);
+      M2 := ShapeNode.Material;
+      if M2 <> nil then
+        Result := M2.MaterialInfo
+      else
+        Result := nil;
     end;
   end else
-  begin
-    M1 := LastNodes.Material;
-    if LightingCalculationOn then
-      Result := M1.EmissiveColor3Single(0) else
-      Result := M1.DiffuseColor3Single(0);
-  end;
+    Result := VRML1State.Material.MaterialInfo;
 end;
 
 { TX3DGraphTraverseStateStack --------------------------------------------- }
@@ -6303,22 +6373,6 @@ end;
 
 { global procedures ---------------------------------------------------------- }
 
-procedure TraverseState_CreateNodes(var StateNodes: TTraverseStateLastNodes);
-var
-  SN: TVRML1StateNode;
-begin
-  for SN := Low(SN) to High(SN) do
-    StateNodes.Nodes[SN] := TraverseStateLastNodesClasses[SN].Create;
-end;
-
-procedure TraverseState_FreeAndNilNodes(var StateNodes: TTraverseStateLastNodes);
-var
-  SN: TVRML1StateNode;
-begin
-  for SN := Low(SN) to High(SN) do
-    FreeAndNil(StateNodes.Nodes[SN]);
-end;
-
 function KeyRange(Key: TSingleList;
   const Fraction: Single; out T: Single): Integer;
 var
@@ -6384,6 +6438,14 @@ begin
   Temp.FreeIfUnused;
 end;
 
+function URNMatchingCastle(const URN, ClassX3DType: string): boolean;
+begin
+  Result :=
+    (URN = 'urn:castle-engine.sourceforge.io:node:' + ClassX3DType) or
+    (URN = 'urn:castle-engine.sourceforge.net:node:' + ClassX3DType) or
+    (URN = 'urn:vrmlengine.sourceforge.net:node:' + ClassX3DType);
+end;
+
 { TNodeDestructionNotificationList ------------------------------------------- }
 
 procedure TNodeDestructionNotificationList.ExecuteAll(Node: TX3DNode);
@@ -6398,7 +6460,7 @@ end;
 
 procedure X3DNodesFinalization;
 begin
-  TraverseState_FreeAndNilNodes(StateDefaultNodes);
+  FreeAndNil(VRML1DefaultState);
   FreeAndNil(TraverseSingleStack);
   FreeAndNil(X3DCache);
 
@@ -6462,7 +6524,8 @@ initialization
   RegisterParticleSystemsNodes;
 
   X3DCache := TX3DNodesCache.Create;
-  TraverseState_CreateNodes(StateDefaultNodes);
+  VRML1DefaultState := TVRML1State.Create;
+  VRML1DefaultState.CreateNodes;
   TraverseSingleStack := TX3DGraphTraverseStateStack.Create;
 
   CurrentlyLoading := TCastleStringList.Create;

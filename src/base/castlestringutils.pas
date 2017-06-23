@@ -1,5 +1,5 @@
 {
-  Copyright 2000-2016 Michalis Kamburelis.
+  Copyright 2000-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -2426,7 +2426,7 @@ var
   var
     SError: string;
   begin
-    SError := Format('Invalid charater "%s" at position %d in string "%s"', [C, I, S]);
+    SError := Format('Invalid character "%s" at position %d in string "%s"', [C, I, S]);
     if RaiseExceptionOnError then
       raise EInvalidChar.Create(SError) else
       WritelnWarning('SCheckChars', SError);

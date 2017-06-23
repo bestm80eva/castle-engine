@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -160,8 +160,6 @@
     function DirectEnumerateActiveForTraverse(
       Func: TEnumerateChildrenFunction;
       StateStack: TX3DGraphTraverseStateStack): Pointer; override;
-    function GetProxy: TX3DNode;
-    procedure SetProxy(const Value: TX3DNode);
   public
     procedure CreateNode; override;
     class function ClassX3DType: string; override;
@@ -180,9 +178,6 @@
 
     private FFdProxy: TSFNode;
     public property FdProxy: TSFNode read FFdProxy;
-
-    { When non-nil, this will be used for collisions, instead of children. }
-    property Proxy: TX3DNode read GetProxy write SetProxy;
 
     { Setup this Collision node to show VisibleNode, but collide as
       a Box. This sets VisibleNode as the only child of this collision node,
@@ -374,7 +369,7 @@
       extents. Depending on your window aspect ratio, you may need to make
       one extent (vertical or horizontal) larger to adjust. }
     class procedure AspectFieldOfView(
-      var AFieldOfView: TVector4Single;
+      var AFieldOfView: TFloatRectangle;
       const WindowWidthToHeight: Single);
 
     {$I auto_generated_node_helpers/x3dnodes_orthoviewpoint.inc}
@@ -873,16 +868,6 @@ begin
   FdChildren.Add(VisibleNode);
 end;
 
-function TCollisionNode.GetProxy: TX3DNode;
-begin
-  Result := FdProxy.Value;
-end;
-
-procedure TCollisionNode.SetProxy(const Value: TX3DNode);
-begin
-  FdProxy.Send(Value);
-end;
-
 { TAbstractLODNode ----------------------------------------------------------- }
 
 procedure TAbstractLODNode.CreateNode;
@@ -1112,30 +1097,24 @@ end;
 
 function TOrthoViewpointNode.ProjectionMatrix: TMatrix4Single;
 var
-  OrthoDimensions: TVector4Single;
+  Dimensions: TFloatRectangle;
 begin
-  { default OrthoDimensions, for OrthoViewpoint }
-  OrthoDimensions[0] := -1;
-  OrthoDimensions[1] := -1;
-  OrthoDimensions[2] :=  1;
-  OrthoDimensions[3] :=  1;
+  { default Dimensions, for OrthoViewpoint }
+  Dimensions.Left   := -1;
+  Dimensions.Bottom := -1;
+  Dimensions.Width  :=  2;
+  Dimensions.Height :=  2;
 
-  if FdFieldOfView.Items.Count > 0 then OrthoDimensions[0] := FdFieldOfView.Items[0];
-  if FdFieldOfView.Items.Count > 1 then OrthoDimensions[1] := FdFieldOfView.Items[1];
-  if FdFieldOfView.Items.Count > 2 then OrthoDimensions[2] := FdFieldOfView.Items[2];
-  if FdFieldOfView.Items.Count > 3 then OrthoDimensions[3] := FdFieldOfView.Items[3];
+  if FdFieldOfView.Items.Count > 0 then Dimensions.Left   := FdFieldOfView.Items[0];
+  if FdFieldOfView.Items.Count > 1 then Dimensions.Bottom := FdFieldOfView.Items[1];
+  if FdFieldOfView.Items.Count > 2 then Dimensions.Width  := FdFieldOfView.Items[2] - Dimensions.Left;
+  if FdFieldOfView.Items.Count > 3 then Dimensions.Height := FdFieldOfView.Items[3] - Dimensions.Bottom;
 
   { TODO: for currently bound viewpoint, we should honour
     fieldOfView and aspect ratio of current window,
     by calling AspectFieldOfView. }
 
-  Result := OrthoProjMatrix(
-    { Beware: order of OrthoViewpoint.fieldOfView and OrthoDimensions
-      is different than typical OpenGL and our OrthoProjMatrix params. }
-    OrthoDimensions[0],
-    OrthoDimensions[2],
-    OrthoDimensions[1],
-    OrthoDimensions[3],
+  Result := OrthoProjectionMatrix(Dimensions,
     1, 100); { TODO: near, far projection testing values }
 end;
 
@@ -1164,7 +1143,7 @@ begin
 end;
 
 class procedure TOrthoViewpointNode.AspectFieldOfView(
-  var AFieldOfView: TVector4Single; const WindowWidthToHeight: Single);
+  var AFieldOfView: TFloatRectangle; const WindowWidthToHeight: Single);
 
   { Scale the extent. Since AspectFieldOfView should only make AFieldOfView
     larger (because OrthoViewpoint.fieldOfView gives the minimal extents),
@@ -1189,18 +1168,17 @@ class procedure TOrthoViewpointNode.AspectFieldOfView(
 
 var
   FOVAspect: Single;
+  Min, Max: Single;
 begin
-  if FloatsEqual(AFieldOfView[2], AFieldOfView[0]) or
-     FloatsEqual(AFieldOfView[3], AFieldOfView[1]) then
+  if (AFieldOfView.Width <= 0) or
+     (AFieldOfView.Height <= 0) then
   begin
     if Log then
       WritelnLog('OrthoViewpoint', 'OrthoViewpoint.fieldOfView extent (max-min) is zero');
     Exit;
   end;
 
-  FOVAspect :=
-    (AFieldOfView[2] - AFieldOfView[0]) /
-    (AFieldOfView[3] - AFieldOfView[1]);
+  FOVAspect := AFieldOfView.Width / AFieldOfView.Height;
 
   { The idea is to change FieldOfView, such that at the end the above
     equation would calculate FOVAspect as equal to WindowWidthToHeight.
@@ -1211,11 +1189,19 @@ begin
 
   if FOVAspect > WindowWidthToHeight then
   begin
-    ScaleExtent(FOVAspect / WindowWidthToHeight, AFieldOfView[1], AFieldOfView[3]);
+    Min := AFieldOfView.Bottom;
+    Max := AFieldOfView.Top;
+    ScaleExtent(FOVAspect / WindowWidthToHeight, Min, Max);
+    AFieldOfView.Bottom := Min;
+    AFieldOfView.Height := Max - Min;
   end else
   if FOVAspect < WindowWidthToHeight then
   begin
-    ScaleExtent(WindowWidthToHeight / FOVAspect, AFieldOfView[0], AFieldOfView[2]);
+    Min := AFieldOfView.Left;
+    Max := AFieldOfView.Right;
+    ScaleExtent(WindowWidthToHeight / FOVAspect, Min, Max);
+    AFieldOfView.Left := Min;
+    AFieldOfView.Width := Max - Min;
   end;
 end;
 
@@ -1297,7 +1283,7 @@ function TViewpointNode.ProjectionMatrix: TMatrix4Single;
 begin
   { TODO: for currently bound viewpoint, we should honour
     fieldOfView and aspect ratio of current window? }
-  Result := PerspectiveProjMatrixRad(
+  Result := PerspectiveProjectionMatrixRad(
     FdFieldOfView.Value, 1,
     1, 100); { TODO: near, far projection testing values }
 end;

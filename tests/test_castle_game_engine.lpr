@@ -4,6 +4,15 @@ program test_castle_game_engine;
   Usually this is automatically defined by calling compile_console.sh. }
 { $define TEXT_RUNNER}
 
+{ Define this to disable any GUI tests (using CastleWindow).
+  The CastleWindow
+  - Conflicts with LCL windows (so it can be used only when TEXT_RUNNER,
+    otherwise we use a runner that shows output in LCL window).
+  - Can work only when graphical window system (like X on Unix)
+    is available (e.g. not inside non-X ssh session, or cron).
+}
+{ $define NO_WINDOW_SYSTEM}
+
 {$mode objfpc}{$H+}
 
 uses
@@ -18,8 +27,10 @@ uses
   { Test units below. Their order determines default tests order. }
 
   { Testing (mainly) things inside FPC standard library, not CGE }
+  TestCompiler,
   TestSysUtils,
   TestFGL,
+  TestGenericsCollections,
   TestOldFPCBugs,
   TestFPImage,
 
@@ -60,17 +71,14 @@ uses
   TestCastleCurves,
   TestCastleTimeUtils,
   TestCastleControls
+
   {$ifdef TEXT_RUNNER} {$ifndef NO_WINDOW_SYSTEM},
-  { These require CastleWindow initializing it's own window. So they
-    1. conflict with LCL windows (so only when TEXT_RUNNER)
-    2. are allowed only when graphical window system (like X on Unix)
-       is available (so not when NO_WINDOW_SYSTEM,
-       e.g. do not do them when running inside non-X ssh session or cron) }
   TestCastleWindow,
   TestCastleOpeningAndRendering3D,
   TestCastleGLFonts,
   TestCastleWindowOpen
   {$endif} {$endif}
+
   { Stuff requiring Lazarus LCL. }
   {$ifndef TEXT_RUNNER},
   TestCastleLCLUtils

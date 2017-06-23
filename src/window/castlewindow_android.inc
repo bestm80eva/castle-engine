@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -39,7 +39,7 @@ JNI,
 CastleAndroidInternalCWString, CastleAndroidInternalLooper,
 CastleAndroidInternalLog, CastleAndroidInternalAssetStream,
 {$ifdef CASTLE_PERSISTENT_ANDROID_STATE} CastleConfig, {$endif}
-CastleOpenAL, CastleVorbisFile, CastleFreeTypeH, CastleZLib,
+CastleOpenAL, CastleInternalVorbisFile, CastleInternalFreeTypeH, CastleInternalZLib,
 {$endif}
 
 {$ifdef read_window_interface}
@@ -519,7 +519,7 @@ begin
   { There is no cursor position on Android devices.
     Just update MousePosition (although we're not really required to
     do this, code using SetMousePosition should not depend that
-    it was always successfull). }
+    it was always successful). }
   if not Closed then
     FMousePosition := Value;
 end;
@@ -715,11 +715,15 @@ end;
 
 function TCastleApplication.ScreenWidth: integer;
 begin
+  if FScreenWidth = 0 then
+    WritelnWarning('Window', 'Application.ScreenWidth is queried before window is open, returns zero');
   Result := FScreenWidth;
 end;
 
 function TCastleApplication.ScreenHeight: integer;
 begin
+  if FScreenHeight = 0 then
+    WritelnWarning('Window', 'Application.ScreenHeight is queried before window is open, returns zero');
   Result := FScreenHeight;
 end;
 

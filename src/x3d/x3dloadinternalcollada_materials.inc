@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -91,6 +91,8 @@ var
       But to be consistent, we add one effect (to Effects list)
       and one reference to it (to Materials list). }
     Materials[MatId] := Effect;
+
+    // TODO: generate CommonSurfaceShader as an alternative?
 
     ShaderElement := MatElement.ChildElement('shader', false);
     if ShaderElement <> nil then

@@ -1,5 +1,5 @@
 {
-  Copyright 2007-2016 Michalis Kamburelis.
+  Copyright 2007-2017 Michalis Kamburelis.
 
   This file is part of "the rift".
 
@@ -20,7 +20,7 @@
   ----------------------------------------------------------------------------
 }
 
-{ }
+{ Display main on-screen menu. }
 unit RiftMainMenu;
 
 interface
@@ -106,7 +106,6 @@ end;
 
 procedure Resize(Container: TUIContainer);
 begin
-  OrthoProjection(0, Window.Width, 0, Window.Height);
 end;
 
 procedure Press(Container: TUIContainer; const Event: TInputPressRelease);
@@ -223,6 +222,9 @@ begin
   Add(TMusicVolumeMenuItem.Create(Self));
   Add('Sound output device', SoundDeviceArgument);
   Add('Back to main menu', @ClickBack);
+
+  // select item 1 as default, because item 0 is the label
+  CurrentItem := 1;
 end;
 
 procedure TRiftSoundMenu.ClickChangeDevice(Sender: TObject);
@@ -273,6 +275,9 @@ begin
     Add(D.Device.Caption, D);
   end;
   Add('Cancel', @ClickBack);
+
+  // select item 1 as default, because item 0 is the label
+  CurrentItem := 1;
 end;
 
 procedure TSoundDeviceMenu.ClickBack(Sender: TObject);
@@ -290,6 +295,8 @@ begin
 
   MenuBg := TCastleImageControl.Create(nil);
   MenuBg.URL := DataConfig.GetURL('main_menu/image');
+  MenuBg.FullSize := true;
+  MenuBg.Stretch := true;
 end;
 
 procedure ContextClose;

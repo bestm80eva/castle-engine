@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -42,8 +42,6 @@
     procedure SetProjectionSceneLocation(const Value: TVector3Single);
     function  GetProjectionSceneDirection: TVector3Single;
     procedure SetProjectionSceneDirection(const Value: TVector3Single);
-    function GetDefaultShadowMap: TGeneratedShadowMapNode;
-    procedure SetDefaultShadowMap(const Value: TGeneratedShadowMapNode);
   protected
     procedure BeforeTraverse(StateStack: TX3DGraphTraverseStateStack); override;
     procedure MiddleTraverse(StateStack: TX3DGraphTraverseStateStack); override;
@@ -93,8 +91,6 @@
 
     private FFdDefaultShadowMap: TSFNode;
     public property FdDefaultShadowMap: TSFNode read FFdDefaultShadowMap;
-    property DefaultShadowMap: TGeneratedShadowMapNode
-      read GetDefaultShadowMap write SetDefaultShadowMap;
 
     private FFdShadows: TSFBool;
     public property FdShadows: TSFBool read FFdShadows;
@@ -639,19 +635,6 @@ begin
     Result := lsLocal;
 end;
 
-function TAbstractLightNode.GetDefaultShadowMap: TGeneratedShadowMapNode;
-begin
-  if FdDefaultShadowMap.Value is TGeneratedShadowMapNode then
-    Result := TGeneratedShadowMapNode(FdDefaultShadowMap.Value)
-  else
-    Result := nil;
-end;
-
-procedure TAbstractLightNode.SetDefaultShadowMap(const Value: TGeneratedShadowMapNode);
-begin
-  FdDefaultShadowMap.Send(Value);
-end;
-
 procedure TAbstractDirectionalLightNode.CreateNode;
 begin
   inherited;
@@ -692,8 +675,9 @@ function TAbstractDirectionalLightNode.ProjectionMatrix: TMatrix4Single;
 var
   N, F: Single;
   R: TVector4Single;
+  Dimensions: TFloatRectangle;
 begin
-  { If author didn't provide and X3DShadowMaps unit didn't calculate
+  { If author didn't provide and CastleInternalShadowMaps unit didn't calculate
     values for some fields, then use FallbackProjection* defaults here. }
 
   N := FdProjectionNear.Value;
@@ -705,9 +689,12 @@ begin
   R := FdProjectionRectangle.Value;
   if PerfectlyZeroVector(R) then R := FallbackProjectionRectangle;
 
-  { Beware: order of projectionRectangle
-    is different than typical OpenGL and our OrthoProjMatrix params. }
-  Result := OrthoProjMatrix(R[0], R[2], R[1], R[3], N, F);
+  Dimensions.Left   := R[0];
+  Dimensions.Bottom := R[1];
+  Dimensions.Width  := R[2] - Dimensions.Left;
+  Dimensions.Height := R[3] - Dimensions.Bottom;
+
+  Result := OrthoProjectionMatrix(Dimensions, N, F);
 end;
 
 function TAbstractDirectionalLightNode.ModelviewMatrix: TMatrix4Single;
@@ -1053,7 +1040,7 @@ function TSpotLightNode.ProjectionMatrix: TMatrix4Single;
 var
   Angle, N, F: Single;
 begin
-  { If author didn't provide and X3DShadowMaps unit didn't calculate
+  { If author didn't provide and CastleInternalShadowMaps unit didn't calculate
     values for some fields, then use FallbackProjection* defaults here. }
 
   if FdprojectionAngle.Value <= 0 then
@@ -1066,7 +1053,7 @@ begin
   F := FdProjectionFar.Value;
   if F = 0 then F := FallbackProjectionFar;
 
-  Result := PerspectiveProjMatrixRad(Angle, 1, N, F);
+  Result := PerspectiveProjectionMatrixRad(Angle, 1, N, F);
 end;
 
 function TSpotLightNode.ModelviewMatrix: TMatrix4Single;

@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -24,13 +24,12 @@ unit CastleSceneCore;
 interface
 
 uses
-  SysUtils, Classes, CastleVectors, CastleBoxes, CastleTriangles,
-  X3DFields, X3DNodes, CastleClassUtils, CastleUtils,
-  CastleShapes, CastleInternalTriangleOctree, CastleProgress, CastleInternalOctree,
-  CastleInternalShapeOctree,
-  CastleKeysMouse, X3DTime, CastleCameras, X3DTriangles, Contnrs,
-  CastleRenderingCamera, Castle3D, X3DShadowMaps, FGL, CastleGenericLists,
-  CastleRays;
+  SysUtils, Classes, FGL, Contnrs,
+  CastleVectors, CastleBoxes, CastleTriangles, X3DFields, X3DNodes,
+  CastleClassUtils, CastleUtils, CastleShapes, CastleInternalTriangleOctree,
+  CastleProgress, CastleInternalOctree, CastleInternalShapeOctree,
+  CastleKeysMouse, X3DTime, CastleCameras, X3DTriangles, CastleRenderingCamera,
+  Castle3D, CastleInternalShadowMaps, CastleGenericLists, CastleProjection;
 
 type
   { Internal helper type for TCastleSceneCore.
@@ -292,7 +291,7 @@ type
   TCompiledScriptHandlerInfoList = specialize TGenericStructList<TCompiledScriptHandlerInfo>;
 
   { Possible spatial structures that may be managed by TCastleSceneCore,
-    see TCastleSceneCore.Spatial. }
+    see @link(TCastleSceneCore.Spatial). }
   TSceneSpatialStructure = (
     { Create @italic(and keep up-to-date) a spatial structure
       containing all visible shapes.
@@ -313,7 +312,7 @@ type
       and then each Shape has an octree of triangles inside.
 
       This octree is useful for all kinds of collision detection.
-      Compared to OctreeCollidableTriangles, it is (very slightly on typical scenes)
+      Compared to ssStaticCollisions, it is (very slightly on typical scenes)
       less efficient, but it can also be updated very fast.
       For example, merely transforming some Shape means that only
       one item needs to be moved in the top-level shape tree.
@@ -333,10 +332,10 @@ type
       keeps pointers to some states that may become invalid in dynamic scenes. }
     ssVisibleTriangles,
 
-    { Create a spatial structure containing containing all collidable triangles.
-      This is actually unused for now.
+    { Create a spatial structure containing all collidable triangles,
+      @bold(only for scenes that never change).
 
-      It may be useful to you if you're absolutely sure that you have a static scene
+      It may be useful if you're absolutely sure that you have a static scene
       (nothing changes, e.g. because ProcessEvents = @false) and
       you want to have collision detection with the scene.
 
@@ -345,7 +344,7 @@ type
       contents cannot change when this octree is created --- as this octree
       keeps pointers to some states that may become invalid in dynamic scenes.
       Use ssDynamicCollisions for dynamic scenes. }
-    ssCollidableTriangles);
+    ssStaticCollisions);
   TSceneSpatialStructures = set of TSceneSpatialStructure;
 
   TGeometryChange =
@@ -417,14 +416,14 @@ type
     and routes mechanism (see ProcessEvents).
 
     The actual VRML/X3D nodes graph is stored in the RootNode property.
-    Remember that if you directly change the fields/nodes within the RootNode,
-    this scene object must be notified about this.
-    The simplest way to do this is to use only TX3DField.Send to change
-    the fields' values. Or you can call TX3DField.Changed after each change.
-    Or you will have to call ChangedField or ChangedAll method
-    of this class.
-    If the scene is changed by VRML/X3D events, all changes are automagically
-    acted upon, so you don't have to do anything.
+    If you directly change the fields/nodes within the RootNode
+    (changing them through the @code(FdXxx) properties of nodes,
+    instead of nice wrappers without the @code(Fd...) prefix)
+    then the scene must be notified about this.
+    The simplest way to do this is to use only @link(TX3DField.Send) to change
+    the fields' values. Or you can call @link(TX3DField.Changed) after each change.
+    If you will have to call @link(ChangedAll) method of this class,
+    to rebuild everything (which is quite expensive).
 
     For more-or-less static scenes,
     many things are cached and work very quickly.
@@ -531,6 +530,8 @@ type
   private
     procedure FreeResources_UnloadTextureData(Node: TX3DNode);
     procedure FreeResources_UnloadTexture3DData(Node: TX3DNode);
+    procedure FontChanged_TextNode(Node: TX3DNode);
+    procedure FontChanged_AsciiTextNode_1(Node: TX3DNode);
   private
     FOnGeometryChanged: TSceneGeometryChanged;
     FOnViewpointsChanged: TSceneNotification;
@@ -675,7 +676,7 @@ type
     FOctreeRendering: TShapeOctree;
     FOctreeDynamicCollisions: TShapeOctree;
     FOctreeVisibleTriangles: TTriangleOctree;
-    FOctreeCollidableTriangles: TTriangleOctree;
+    FOctreeStaticCollisions: TTriangleOctree;
     FSpatial: TSceneSpatialStructures;
 
     { Properties of created triangle octrees.
@@ -778,9 +779,11 @@ type
 
     procedure ExecuteCompiledScript(const HandlerName: string; ReceivedValue: TX3DField); override;
 
+  public
     function HeightCollision(const Position, GravityUp: TVector3Single;
       const TrianglesToIgnoreFunc: T3DTriangleIgnoreFunc;
       out AboveHeight: Single; out AboveGround: P3DTriangle): boolean; override;
+  protected
     function MoveCollision(
       const OldPos, ProposedNewPos: TVector3Single; out NewPos: TVector3Single;
       const IsRadius: boolean; const Radius: Single;
@@ -816,8 +819,15 @@ type
       As these callbacks may try to e.g. render our scene (which should
       not be done on the dirty state), we have to protect ourselves
       using this variable (e.g. Render routines will exit immediately
-      when Dirty <> 0). }
-    Dirty: Cardinal;
+      when InternalDirty <> 0).
+
+      Note: in the future, we could replace this by just Enable/Disable
+      feature on T3D. But it's not so trivial now, as Enable/Disable
+      makes even *too much* things non-existing, e.g. GetCollides
+      may return false, BoundingBox may be empty etc.
+
+      @exclude }
+    InternalDirty: Cardinal;
 
     const
       DefaultShadowMapsDefaultSize = 256;
@@ -924,8 +934,9 @@ type
       after BeforeNodesFree, and before you try actual rendering, events etc.)
       Otherwise some stuff may not get recalculated.
 
-      InternalChangedAll is for internal use. This is @true when ChangedAll
-      calls it at the beginning of work, and means that nothing is freed,
+      The InternalChangedAll parameter is for internal use.
+      It is set to @true when ChangedAll
+      calls this method at the beginning of it's work, and means that nothing is freed,
       and we only require necessary cleanup at the beginning of ChangedAll.
       This way ChangedAll (when it wasn't preceeded by explicit
       BeforeNodesFree(false)) produces events from stacks CheckForDeletedNodes. }
@@ -954,10 +965,17 @@ type
       (Before freeing the nodes, remember to also call BeforeNodesFree
       earlier.)
 
+      @bold(You usually never need to call this method explicitly.
+      It's called by engine when necesssary.)
+      However, you need to call it yourself if you change the X3D graph directly
+      through nodes' @code(FdXxx) fields,
+      and you don't want to call for some reason @link(TX3DField FdXxx.Changed).
+
       ChangedAll causes recalculation of all things dependent on RootNode,
-      so it's very costly to call this. While you have to call some ChangedXxx
-      method after you changed RootNode graph directly, usually you
-      can call something more efficient, like ChangedField.
+      so it's very costly to call this. Avoid calling this.
+      When you change a simple field, like by @code(FdXxx.Value := ...),
+      you should rather call @code(FdXxx.Changed), and it may do something
+      much faster than rebuilding the scene.
 
       @italic(Descendant implementors notes:) ChangedAll is virtual,
       when overriding it remember that it's
@@ -969,6 +987,8 @@ type
     procedure ChangedAll; override;
 
     { Notify scene that you changed the value of given field.
+      @bold(This method is internal, it should be used only by TX3DField
+      implementation.)
 
       This does relatively intelligent discovery what could be possibly
       affected by this field, and updates / invalidates
@@ -979,13 +999,15 @@ type
       reported to scene by calling this method. This includes changes
       to the inactive graph part (e.g. in inactive Switch child),
       because our shapes have to track it also.
-      Changes to TShape.State.LastNodes (these nodes may come
-      from StateDefaultNodes) should also be reported here.
+      Changes to TShape.State.VRML1State (these nodes may come
+      from VRML1DefaultState) should also be reported here.
       In fact, you can even notify this scene about changes to fields
       that don't belong to our RootNode --- nothing bad will happen.
       We always try to intelligently
-      detect what this change implicates for this VRML/X3D scene. }
-    procedure ChangedField(Field: TX3DField); override;
+      detect what this change implicates for this VRML/X3D scene.
+
+      @exclude }
+    procedure InternalChangedField(Field: TX3DField); override;
 
     { Notification when geometry changed.
       "Geometry changed" means that the positions
@@ -1090,11 +1112,15 @@ type
     { Actual VRML/X3D graph defining this scene.
 
       It is allowed to change contents of RootNode. Just make sure
-      the scene is notified about these changes --- you should assign
-      fields using methods like TX3DField.Send or (if you assign field
+      the scene is notified about these changes.
+      The simplest option is to use simple properties of nodes
+      (not the ones starting with @code(Fd...) prefix), when possible.
+      Then everything is notified automatically.
+      If you must use fields through the @code(FdXxx) properties,
+      then assign them using @link(TX3DField.Send),
+      or (if you need to assign field
       values directly, like @code(TSFVec3f.Value := ...))
-      call TX3DField.Changed. Eventually, you can call our ChangedField method
-      (but it's usually nicer to use TX3DField.Changed).
+      call @link(TX3DField.Changed).
 
       It is also allowed to change the value of RootNode
       and even to set RootNode to @nil. Be sure to call ChangedAll after this.
@@ -1131,8 +1157,9 @@ type
       @link(T3DWorld.WorldRay SceneManager.Items.WorldRay) or
       @link(T3DWorld.WorldSphereCollision SceneManager.Items.WorldSphereCollision).)
 
-      You can use OctreeCollisions to get either OctreeDynamicCollisions
-      or OctreeCollidableTriangles, whichever is available.
+      You can use @link(InternalOctreeCollisions) to get either
+      @link(InternalOctreeDynamicCollisions) or
+      @link(InternalOctreeStaticCollisions), whichever is available.
 
       Note that when VRML/X3D scene contains Collision nodes, this octree
       contains the @italic(collidable (not necessarily rendered)) objects.
@@ -1155,9 +1182,8 @@ type
       contains the @italic(visible (not necessarily collidable)) objects. }
     function InternalOctreeVisibleTriangles: TTriangleOctree;
 
-    { A spatial structure containing containing all collidable triangles.
-      This is pretty much unused for now.
-      Add ssCollidableTriangles to @link(Spatial) property, otherwise it's @nil.
+    { A spatial structure containing all collidable triangles.
+      Add ssStaticCollisions to @link(Spatial) property, otherwise it's @nil.
 
       @bold(You should not usually use this directly.
       Instead use SceneManager
@@ -1169,13 +1195,15 @@ type
       It is automatically used by the XxxCollision methods in this class,
       if exists, unless OctreeDynamicCollisions exists.
 
-      Note that you can use OctreeCollisions to get either OctreeDynamicCollisions
-      or OctreeCollidableTriangles, whichever is available. }
-    function InternalOctreeCollidableTriangles: TTriangleOctree;
+      Note that you can use @link(InternalOctreeCollisions) to get either
+      @link(InternalOctreeDynamicCollisions)
+      or @link(InternalOctreeStaticCollisions), whichever is available. }
+    function InternalOctreeStaticCollisions: TTriangleOctree;
 
-    { Octree for collisions. This returns either OctreeCollidableTriangles
-      or OctreeDynamicCollisions, whichever is available (or @nil if none).
-      Be sure to add ssDynamicCollisions or ssCollidableTriangles to have
+    { Octree for collisions. This returns either
+      @link(InternalOctreeStaticCollisions) or
+      @link(InternalOctreeDynamicCollisions), whichever is available (or @nil if none).
+      Be sure to add ssDynamicCollisions or ssStaticCollisions to have
       this available.
 
       @bold(You should not usually use this directly.
@@ -1473,7 +1501,12 @@ type
 
     { Call when camera position/dir/up changed, to update things depending
       on camera settings. This includes sensors like ProximitySensor,
-      LOD nodes, camera settings for next RenderedTexture update and more. }
+      LOD nodes, camera settings for next RenderedTexture update and more.
+
+      @bold(There should be no need to call this method explicitly.
+      The scene is notified about camera changes automatically,
+      by the @link(TCastleSceneManager). This method may be renamed / removed
+      in future releases.) }
     procedure CameraChanged(ACamera: TCamera); override;
 
     { List of handlers for VRML/X3D Script node with "compiled:" protocol.
@@ -1664,7 +1697,8 @@ type
       TX3DField.Changed will not notify this scene. This makes a
       small optimization when you know you will not modify scene's VRML/X3D graph
       besides loading (or you're prepared to do it by manually calling
-      Scene.ChangedField etc.).
+      Scene.InternalChangedField, but this should not be used anymore, it's really
+      dirty).
 
       The behavior of events is undefined when scene is static.
       This means that you should always have ProcessEvents = @false
@@ -1674,6 +1708,7 @@ type
       Changing this is expensive when the scene content is already loaded,
       so it's best to adjust this before @link(Load). }
     property Static: boolean read FStatic write SetStatic default false;
+      deprecated 'do not use this; optimization done by this is really negligible; leave ProcessEvents=false for static scenes';
 
     { Nice scene caption. Uses the "title" of WorldInfo
       node inside the VRML/X3D scene. If there is no WorldInfo node
@@ -1751,7 +1786,28 @@ type
       Also stops previously playing named animation, if any.
       Returns whether animation (corresponding TimeSensor node) was found.
       Playing an already-playing animation is guaranteed to start it from
-      the beginning. }
+      the beginning.
+
+      Note: calling this method @italic(does not change the scene immediately).
+      There may be a delay between calling PlayAnimation and actually
+      changing the scene to reflect the state at the beginning of the indicated
+      animation. This delay is usually 1 frame (that is, the scene is updated
+      at the next @link(Update) call), but it may be larger if you use
+      the optimization @link(AnimateSkipTicks).
+
+      This is often a desirable optimization. There's often no "rush" to
+      visually change the animation @italic(right now), and doing it at
+      the nearest @link(Update) call is acceptable.
+      It also means that calling @link(PlayAnimation) multiple times
+      before a single @link(Update) call is not expensive.
+
+      But, sometimes you need to change the scene immediately (for example,
+      because you don't want to show user the initial scene state).
+      To do this, simply call @link(ForceAnimationPose) with @code(TimeInAnimation)
+      parameter = 0 and the same animation. This will change the scene immediately,
+      to show the beginning of this animation.
+      You can call @link(ForceAnimationPose) before or after @link(PlayAnimation),
+      doesn't matter. }
     function PlayAnimation(const AnimationName: string;
       const Looping: TPlayAnimationLooping): boolean;
 
@@ -1784,6 +1840,13 @@ type
       delay, but this property hides it from you, it is changed
       immediately by the PlayAnimation call. }
     property CurrentAnimation: TTimeSensorNode read FCurrentAnimation;
+
+    { Force recalculating the text shapes when font changed.
+      For now, we don't detect font changes (when TFontStyleNode.OnFont
+      returns something different) ourselves.
+      This calls @link(TTextNode.FontChanged) and @link(TAsciiTextNode_1.FontChanged)
+      on all appropriate nodes. }
+    procedure FontChanged;
   published
     { When TimePlaying is @true, the time of our 3D world will keep playing.
       More precisely, our @link(Update) will take care of increasing @link(Time).
@@ -1796,28 +1859,64 @@ type
       1.0 means that 1 second  of real time equals to 1 unit of world time. }
     property TimePlayingSpeed: Single read FTimePlayingSpeed write FTimePlayingSpeed default 1.0;
 
-    { Which spatial structures (octrees, for now) should be created and managed.
+    { Which spatial structures (octrees) should be created and used.
 
-      You should set this, based on your expected usage of this model.
-      See TSceneSpatialStructure for possible values.
-      For usual dynamic scenes rendered with OpenGL,
-      you want this to be [ssRendering, ssDynamicCollisions].
+      Using "spatial structures" allows to achieve various things:
 
-      Before setting any value <> [] you may want to adjust
-      TriangleOctreeLimits, ShapeOctreeLimits.
-      These properties fine-tune how the octrees will be generated
-      (although default values should be Ok for typical cases).
+      @unorderedList(
+        @item(@bold(ssDynamicCollisions) or @bold(ssStaticCollisions):
 
-      Default value of this property is [], which means that
+          Using any of these flags allows to resolve collisions with
+          the (collidable) triangles of the model.
+          By default, every shape is collidable, but you can use the
+          @link(TCollisionNode) to turn collisions off for some shapes
+          (or replace them with simpler objects
+          for the collision-detection purposes).
+
+          As for the distinction between these two flags,
+          ssDynamicCollisions and ssStaticCollisions:
+          Almost always you should use ssDynamicCollisions.
+          The speedup of ssStaticCollisions is very small,
+          and sometimes it costs memory usage (as shapes cannot be reused),
+          and ssStaticCollisions may cause crashes if the model
+          accidentally changes.
+
+          If you use neither @bold(ssDynamicCollisions) nor @bold(ssStaticCollisions),
+          then the collisions are resolved using the whole scene bounding
+          box. That is, treating the whole scene as a giant cube.
+
+          You can always toggle @link(Collides) to quickly make
+          the scene not collidable.)
+
+        @item(@bold(ssRendering):
+
+          Using this adds an additional optimization during rendering.
+          This allows to use frustum culling with an octree.
+
+          Using this is adviced, if your camera usually only sees
+          a small portion of the scene. For example,
+          a typical level / location in a game usually qualifies.)
+
+        @item(@bold(ssVisibleTriangles):
+
+          Using this allows to resolve collisions with visible triangles
+          quickly. This mostly useful only for ray-tracers.)
+      )
+
+      See @link(TSceneSpatialStructure) for more details about
+      the possible values. For usual dynamic scenes rendered in real-time,
+      you set this to @code([ssRendering, ssDynamicCollisions]).
+
+      By default, the value of this property is empty, which means that
       no octrees will be created. This has to be the default value,
-      to 1. get you chance to change TriangleOctreeLimits and such
-      before creating octree 2. otherwise, scenes that not require
-      collision detection would unnecessarily create octrees at construction.
-      Scenes that do not have any spatial structures use default T3D
-      methods for resolving collisions, which means that collisions
-      are checked vs BoundingBox of this scene. (Unless @link(GetCollides)
-      is @false, in which case collisions are disabled, regardless
-      of @name.) }
+      to:
+
+      @orderedList(
+        @item(Not create octrees by default (e.g. at construction).
+          Creating them takes time (and memory).)
+        @item(Allow developer to adjust TriangleOctreeLimits
+          before creating the octree.)
+      ) }
     property Spatial: TSceneSpatialStructures read FSpatial write SetSpatial;
 
     { Should the VRML/X3D event mechanism work.
@@ -1947,7 +2046,7 @@ type
 
 var
   { Log changes to fields.
-    This debugs what and why happens through TCastleSceneCore.ChangedField method
+    This debugs what and why happens through TCastleSceneCore.InternalChangedField method
     and friends, which is central to VRML/X3D dynamic changes and events engine.
 
     Meaningful only if you initialized log (see CastleLog unit) by InitializeLog first. }
@@ -1958,6 +2057,9 @@ var
     are animated at the same time. Often particularly effective for
     skeletal animations of characters, 3D and 2D (e.g. from Spine). }
   OptimizeExtensiveTransformations: boolean = false;
+
+const
+  ssCollidableTriangles = ssStaticCollisions deprecated 'use ssStaticCollisions instead';
 
 implementation
 
@@ -2431,14 +2533,20 @@ begin
   FreeAndNil(FOctreeRendering);
   FreeAndNil(FOctreeDynamicCollisions);
   FreeAndNil(FOctreeVisibleTriangles);
-  FreeAndNil(FOctreeCollidableTriangles);
+  FreeAndNil(FOctreeStaticCollisions);
   FreeAndNil(FAnimationsList);
 
   if OwnsRootNode then
     FreeAndNil(FRootNode) else
   begin
     { This will call UnregisterScene(RootNode). }
+    {$warnings off}
+    { consciously using deprecated feature; in the future,
+      we will just explicitly call
+        if RootNode <> nil then UnregisterScene(RootNode);
+      here. }
     Static := true;
+    {$warnings on}
     FRootNode := nil;
   end;
 
@@ -2990,7 +3098,7 @@ end;
 
 procedure TCastleSceneCore.ChangedAllEnumerateCallback(Node: TX3DNode);
 begin
-  if not Static then
+  if not FStatic then
     Node.Scene := Self;
 
   { We're using AddIfNotExists, not simple Add, below:
@@ -3076,7 +3184,7 @@ procedure TCastleSceneCore.ChangedAll;
 var
   Traverser: TChangedAllTraverser;
 begin
-  { We really need to use Dirty here, to forbid rendering during this.
+  { We really need to use InternalDirty here, to forbid rendering during this.
 
     For example, ProcessShadowMapsReceivers work assumes this:
     otherwise, RootNode.Traverse may cause some progress Step call
@@ -3084,8 +3192,8 @@ begin
     that will be freed by the following ProcessShadowMapsReceivers call.
     Testcase: view3dscene open simple_shadow_map_teapots.x3dv, turn off
     shadow maps "receiveShadows" handling, then turn it back on
-    --- will crash without "Dirty" variable safety. }
-  Inc(Dirty);
+    --- will crash without "InternalDirty" variable safety. }
+  Inc(InternalDirty);
   try
 
   if Log and LogChanges then
@@ -3198,7 +3306,7 @@ begin
   if Log and LogShapes then
     WritelnLogMultiline('Shapes tree', Shapes.DebugInfo);
 
-  finally Dec(Dirty) end;
+  finally Dec(InternalDirty) end;
 end;
 
 type
@@ -3675,7 +3783,7 @@ begin
     VisibleChangeHere([vcVisibleGeometry, vcVisibleNonGeometry]);
 end;
 
-procedure TCastleSceneCore.ChangedField(Field: TX3DField);
+procedure TCastleSceneCore.InternalChangedField(Field: TX3DField);
 var
   ANode: TX3DNode;
   Changes: TX3DChanges;
@@ -3684,7 +3792,7 @@ var
   var
     S: string;
   begin
-    S := 'ChangedField: ' + X3DChangesToStr(Changes) +
+    S := 'InternalChangedField: ' + X3DChangesToStr(Changes) +
       Format(', node: %s (%s %s) at %s',
       [ ANode.X3DName, ANode.X3DType, ANode.ClassName, PointerToStr(ANode) ]);
     if Field <> nil then
@@ -3760,12 +3868,12 @@ var
     if ANode.VRML1StateNode(VRML1StateNode) then
     begin
       { ANode is part of VRML 1.0 state, so it affects Shapes where
-        it's present on State.LastNodes list. }
+        it's present on State.VRML1State list. }
       SI := TShapeTreeIterator.Create(Shapes, false);
       try
         while SI.GetNext do
-          if (SI.Current.State.LastNodes.Nodes[VRML1StateNode] = ANode) or
-             (SI.Current.OriginalState.LastNodes.Nodes[VRML1StateNode] = ANode) then
+          if (SI.Current.State.VRML1State.Nodes[VRML1StateNode] = ANode) or
+             (SI.Current.OriginalState.VRML1State.Nodes[VRML1StateNode] = ANode) then
             SI.Current.Changed(false, Changes);
       finally FreeAndNil(SI) end;
       VisibleChangeHere([vcVisibleGeometry, vcVisibleNonGeometry]);
@@ -3856,7 +3964,7 @@ var
 
     { Change light instance on GlobalLights list, if any.
       This way other 3D scenes, using our lights by
-      TCastleAbstractViewport.UseGlobalLights feature,
+      @link(TCastleAbstractViewport.UseGlobalLights) feature,
       also have updated light location/direction.
       See https://sourceforge.net/p/castle-engine/discussion/general/thread/0bbaaf38/
       for a testcase. }
@@ -4246,7 +4354,7 @@ begin
        our VRML/X3D graph...
 
     2. Also, there are nodes that affect our graph but are outside
-       of it: StateDefaultNodes, and also all the nodes created
+       of it: VRML1DefaultState, and also all the nodes created
        by Proxy methods (geometry and new state nodes).
   }
 
@@ -4559,13 +4667,13 @@ begin
     if Old and not New then
       FreeAndNil(FOctreeVisibleTriangles);
 
-    { Handle OctreeCollidableTriangles }
+    { Handle OctreeStaticCollisions }
 
-    Old := ssCollidableTriangles in Spatial;
-    New := ssCollidableTriangles in Value;
+    Old := ssStaticCollisions in Spatial;
+    New := ssStaticCollisions in Value;
 
     if Old and not New then
-      FreeAndNil(FOctreeCollidableTriangles);
+      FreeAndNil(FOctreeStaticCollisions);
 
     FSpatial := Value;
   end;
@@ -4611,20 +4719,20 @@ begin
   Result := FOctreeVisibleTriangles;
 end;
 
-function TCastleSceneCore.InternalOctreeCollidableTriangles: TTriangleOctree;
+function TCastleSceneCore.InternalOctreeStaticCollisions: TTriangleOctree;
 begin
-  if (ssCollidableTriangles in Spatial) and (FOctreeCollidableTriangles = nil) then
-    FOctreeCollidableTriangles := CreateTriangleOctree(
-      OverrideOctreeLimits(FTriangleOctreeLimits, opCollidableTriangles),
+  if (ssStaticCollisions in Spatial) and (FOctreeStaticCollisions = nil) then
+    FOctreeStaticCollisions := CreateTriangleOctree(
+      OverrideOctreeLimits(FTriangleOctreeLimits, opStaticCollisions),
       TriangleOctreeProgressTitle,
       true);
-  Result := FOctreeCollidableTriangles;
+  Result := FOctreeStaticCollisions;
 end;
 
 function TCastleSceneCore.InternalOctreeCollisions: TBaseTrianglesOctree;
 begin
-  if InternalOctreeCollidableTriangles <> nil then
-    Result := InternalOctreeCollidableTriangles else
+  if InternalOctreeStaticCollisions <> nil then
+    Result := InternalOctreeStaticCollisions else
   if InternalOctreeDynamicCollisions <> nil then
     Result := InternalOctreeDynamicCollisions else
     Result := nil;
@@ -4632,7 +4740,7 @@ end;
 
 function TCastleSceneCore.UseInternalOctreeCollisions: boolean;
 begin
-  Result := Spatial * [ssCollidableTriangles, ssDynamicCollisions] <> [];
+  Result := Spatial * [ssStaticCollisions, ssDynamicCollisions] <> [];
   Assert((not Result) or (InternalOctreeCollisions <> nil));
 
   { We check whether to use InternalOctreeCollisions
@@ -4671,7 +4779,7 @@ function TCastleSceneCore.CreateTriangleOctree(
   end;
 
 begin
-  Inc(Dirty);
+  Inc(InternalDirty);
   try
 
   Result := TTriangleOctree.Create(Limits, BoundingBox);
@@ -4689,7 +4797,7 @@ begin
       FillOctree({$ifdef FPC_OBJFPC} @ {$endif} Result.AddItemTriangle);
   except Result.Free; raise end;
 
-  finally Dec(Dirty) end;
+  finally Dec(InternalDirty) end;
 
   { $define CASTLE_DEBUG_OCTREE_DUPLICATION}
   {$ifdef CASTLE_DEBUG_OCTREE_DUPLICATION}
@@ -4708,7 +4816,7 @@ var
   I: Integer;
   ShapesList: TShapeList;
 begin
-  Inc(Dirty);
+  Inc(InternalDirty);
   try
 
   if Collidable then
@@ -4740,7 +4848,7 @@ begin
     end;
   except Result.Free; raise end;
 
-  finally Dec(Dirty) end;
+  finally Dec(InternalDirty) end;
 
   {$ifdef CASTLE_DEBUG_OCTREE_DUPLICATION}
   WritelnLog('Shapes Octree Stats', '%d items in octree, %d items in octree''s leafs, duplication %f',
@@ -4967,7 +5075,7 @@ begin
   if FStatic <> Value then
   begin
     FStatic := Value;
-    if Static then
+    if FStatic then
     begin
       { Clear TX3DNode.Scene for all nodes }
       if RootNode <> nil then
@@ -5779,7 +5887,7 @@ begin
         as it has to be in ProximitySensor coordinate-space.
 
         Also, since we don't store precalculated box of ProximitySensor,
-        we can gracefully react in ChangedField to changes:
+        we can gracefully react in InternalChangedField to changes:
         - changes to ProximitySensor center and size must only produce
           new ProximitySensorUpdate to eventually activate/deactivate ProximitySensor
         - changes to transforms affecting ProximitySensor must only update
@@ -6424,7 +6532,7 @@ begin
     InternalOctreeRendering;
     InternalOctreeDynamicCollisions;
     InternalOctreeVisibleTriangles;
-    InternalOctreeCollidableTriangles;
+    InternalOctreeStaticCollisions;
     PrepareShapesOctrees;
   end;
 end;
@@ -6859,9 +6967,10 @@ begin
         This alllows to import and rename animations, which is useful. }
       if RootNode.ImportedNames <> nil then
         for I := 0 to RootNode.ImportedNames.Count - 1 do
-          Enum.EnumerateWithAlias(
-            RootNode.ImportedNames[I].Node,
-            RootNode.ImportedNames[I].Name, true);
+          if RootNode.ImportedNames[I].Node is TTimeSensorNode then
+            Enum.EnumerateWithAlias(
+              RootNode.ImportedNames[I].Node,
+              RootNode.ImportedNames[I].Name, true);
     finally FreeAndNil(Enum) end;
   end;
 end;
@@ -6955,6 +7064,30 @@ begin
     Result := TimeNode.CycleInterval;
   end else
     Result := 0;
+end;
+
+procedure TCastleSceneCore.FontChanged_TextNode(Node: TX3DNode);
+begin
+  (Node as TTextNode).FontChanged;
+end;
+
+procedure TCastleSceneCore.FontChanged_AsciiTextNode_1(Node: TX3DNode);
+begin
+  (Node as TAsciiTextNode_1).FontChanged;
+end;
+
+procedure TCastleSceneCore.FontChanged;
+begin
+  if RootNode <> nil then
+  begin
+    GLContextClose; // force TGLRenderer.Prepare on shapes
+    { Free and recalculate all proxy nodes...
+      TODO: this could be done much more efficiently,
+      we only need to free proxies on text nodes. }
+    ChangedAll;
+    RootNode.EnumerateNodes(TTextNode, @FontChanged_TextNode, false);
+    RootNode.EnumerateNodes(TAsciiTextNode_1, @FontChanged_AsciiTextNode_1, false);
+  end;
 end;
 
 end.

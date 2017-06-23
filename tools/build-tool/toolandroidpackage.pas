@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -48,6 +48,77 @@ begin
     Result := AnsiUpperCase(Result[1]) + SEnding(Result, 2);
 end;
 
+{ Try to find ExeName executable.
+  If not found -> exception (if Required) or return '' (if not Required). }
+function FinishExeSearch(const ExeName, BundleName, EnvVarName: string;
+  const Required: boolean): string;
+begin
+  { try to find on $PATH }
+  Result := FindExe(ExeName);
+  { fail if still not found }
+  if Required and (Result = '') then
+    raise Exception.Create('Cannot find "' + ExeName + '" executable on $PATH, or within $' + EnvVarName + '. Install Android ' + BundleName + ' and make sure that "' + ExeName + '" executable is on $PATH, or that $' + EnvVarName + ' environment variable is set correctly.');
+end;
+
+{ Try to find "ndk-build" tool executable.
+  If not found -> exception (if Required) or return '' (if not Required). }
+function NdkBuildExe(const Required: boolean = true): string;
+const
+  ExeName = 'ndk-build';
+  BundleName = 'NDK';
+  EnvVarName = 'ANDROID_NDK_HOME';
+var
+  Env: string;
+begin
+  Result := '';
+  { try to find in $ANDROID_NDK_HOME }
+  Env := GetEnvironmentVariable(EnvVarName);
+  if Env <> '' then
+  begin
+    Result := AddExeExtension(InclPathDelim(Env) + ExeName);
+    if not FileExists(Result) then
+      Result := '';
+  end;
+  { try to find in $ANDROID_HOME }
+  if Result = '' then
+  begin
+    Env := GetEnvironmentVariable('ANDROID_HOME');
+    if Env <> '' then
+    begin
+      Result := AddExeExtension(InclPathDelim(Env) + 'ndk-bundle' + PathDelim + ExeName);
+      if not FileExists(Result) then
+        Result := '';
+    end;
+  end;
+  { try to find on $PATH }
+  if Result = '' then
+    Result := FinishExeSearch(ExeName, BundleName, EnvVarName, Required);
+end;
+
+{ Try to find "adb" tool executable.
+  If not found -> exception (if Required) or return '' (if not Required). }
+function AdbExe(const Required: boolean = true): string;
+const
+  ExeName = 'adb';
+  BundleName = 'SDK';
+  EnvVarName = 'ANDROID_HOME';
+var
+  Env: string;
+begin
+  Result := '';
+  { try to find in $ANDROID_HOME }
+  Env := GetEnvironmentVariable(EnvVarName);
+  if Env <> '' then
+  begin
+    Result := AddExeExtension(InclPathDelim(Env) + 'platform-tools' + PathDelim + ExeName);
+    if not FileExists(Result) then
+      Result := '';
+  end;
+  { try to find on $PATH }
+  if Result = '' then
+    Result := FinishExeSearch(ExeName, BundleName, EnvVarName, Required);
+end;
+
 procedure CreateAndroidPackage(const Project: TCastleProject;
   const OS: TOS; const CPU: TCPU; const SuggestedPackageMode: TCompilationMode;
   const Files: TCastleStringList);
@@ -57,7 +128,7 @@ var
   { Some utility procedures PackageXxx below.
     They work just like Xxx, but target filename should not contain
     prefix AndroidProjectPath. They avoid overwriting stuff
-    already existing (in case multiple components
+    already existing (in case multiple services
     contain the same path inside), but warn about it. }
 
   procedure PackageCheckForceDirectories(const Dirs: string);
@@ -71,7 +142,7 @@ var
     if not FileExists(AndroidProjectPath + FileName) then
       SaveImage(Image, FilenameToURISafe(AndroidProjectPath + FileName))
     else
-      WritelnWarning('Android', 'Android package file specified by multiple components: ' + FileName);
+      WritelnWarning('Android', 'Android package file specified by multiple services: ' + FileName);
   end;
 
   procedure PackageSmartCopyFile(const FileFrom, FileTo: string);
@@ -80,7 +151,7 @@ var
     if not FileExists(AndroidProjectPath + FileTo) then
       SmartCopyFile(FileFrom, AndroidProjectPath + FileTo)
     else
-      WritelnWarning('Android', 'Android package file specified by multiple components: ' + FileTo);
+      WritelnWarning('Android', 'Android package file specified by multiple services: ' + FileTo);
   end;
 
 {
@@ -91,20 +162,20 @@ var
       PackageCheckForceDirectories(ExtractFilePath(FileTo));
       StringToFile(FileTo, Contents);
     end else
-      WritelnWarning('Android package file specified by multiple components: ' + FileTo);
+      WritelnWarning('Android package file specified by multiple services: ' + FileTo);
   end;
 }
 
-  { Generate simple text stuff for Android project from templates. }
+  { Generate files for Android project from templates. }
   procedure GenerateFromTemplates;
   var
     DestinationPath: string;
 
-    procedure ExtractComponent(const ComponentName: string);
+    procedure ExtractService(const ServiceName: string);
     var
       TemplatePath: string;
     begin
-      TemplatePath := 'android/integrated-components/' + ComponentName;
+      TemplatePath := 'android/integrated-services/' + ServiceName;
       Project.ExtractTemplate(TemplatePath, DestinationPath);
     end;
 
@@ -127,31 +198,18 @@ var
 
     if Project.AndroidProjectType = apIntegrated then
     begin
-      { add declared components }
-      for I := 0 to Project.AndroidComponents.Count - 1 do
-        ExtractComponent(Project.AndroidComponents[I].Name);
+      { add declared services }
+      for I := 0 to Project.AndroidServices.Count - 1 do
+        ExtractService(Project.AndroidServices[I].Name);
 
-      { add automatic components }
+      { add automatic services }
       if (depSound in Project.Dependencies) and
-         not Project.AndroidComponents.HasComponent('sound') then
-        ExtractComponent('sound');
+         not Project.AndroidServices.HasService('sound') then
+        ExtractService('sound');
       if (depOggVorbis in Project.Dependencies) and
-         not Project.AndroidComponents.HasComponent('ogg_vorbis') then
-        ExtractComponent('ogg_vorbis');
+         not Project.AndroidServices.HasService('ogg_vorbis') then
+        ExtractService('ogg_vorbis');
     end;
-  end;
-
-  { Try to find "android" tool executable, exception if not found. }
-  function AndroidExe: string;
-  begin
-    { try to find in $ANDROID_HOME }
-    Result := AddExeExtension(InclPathDelim(GetEnvironmentVariable('ANDROID_HOME')) +
-      'tools' + PathDelim + 'android');
-    { try to find on $PATH }
-    if not FileExists(Result) then
-      Result := FindExe('android');
-    if Result = '' then
-      raise Exception.Create('Cannot find "android" executable on $PATH, or within $ANDROID_HOME. Install Android SDK and make sure that "android" executable is on $PATH, or that $ANDROID_HOME environment variable is set correctly.');
   end;
 
   procedure GenerateIcons;
@@ -202,16 +260,16 @@ var
                 'assets' + PathDelim + Files[I];
       PackageSmartCopyFile(FileFrom, FileTo);
       if Verbose then
-        Writeln('Package file: ' + Files[I]);
+        Writeln('Packaging data file: ' + Files[I]);
     end;
   end;
 
   procedure GenerateLibrary;
   begin
-    PackageSmartCopyFile(Project.Path + Project.AndroidLibraryFile(true),
+    PackageSmartCopyFile(Project.AndroidLibraryFile,
       'app' + PathDelim + 'src' + PathDelim + 'main' + PathDelim +
       { Place precompiled libs in jni/ , ndk-build will find them there. }
-      'jni' + PathDelim + 'armeabi-v7a' + PathDelim + Project.AndroidLibraryFile(false));
+      'jni' + PathDelim + 'armeabi-v7a' + PathDelim + ExtractFileName(Project.AndroidLibraryFile));
   end;
 
   { Run "ndk-build", this moves our .so to the final location in jniLibs,
@@ -230,7 +288,7 @@ var
       what ndk-build does: it copies them from jni/ to another directory. }
 
     RunCommandSimple(AndroidProjectPath + 'app' + PathDelim + 'src' + PathDelim + 'main',
-      'ndk-build', ['--silent', 'NDK_LIBS_OUT=./jniLibs']);
+      NdkBuildExe, ['--silent', 'NDK_LIBS_OUT=./jniLibs']);
   end;
 
 var
@@ -322,7 +380,7 @@ var
     end;
   end;
 
-  { Run "gradlew" to actually build the final apk. }
+  { Run Gradle to actually build the final apk. }
   procedure RunGradle(const PackageMode: TCompilationMode);
   var
     Args: TCastleStringList;
@@ -342,8 +400,16 @@ var
       {$ifdef MSWINDOWS}
       RunCommandSimple(AndroidProjectPath, AndroidProjectPath + 'gradlew.bat', Args.ToArray);
       {$else}
-      Args.Insert(0, './gradlew');
-      RunCommandSimple(AndroidProjectPath, 'bash', Args.ToArray);
+      if FileExists(AndroidProjectPath + 'gradlew') then
+      begin
+        Args.Insert(0, './gradlew');
+        RunCommandSimple(AndroidProjectPath, 'bash', Args.ToArray);
+      end else
+      begin
+        Writeln('Local Gradle wrapper ("gradlew") not found, so we will call the Gradle on $PATH.');
+        Writeln('Make sure you have installed Gradle (e.g. from the Debian "gradle" package), in a version compatible with the Android Gradle plugin (see https://developer.android.com/studio/releases/gradle-plugin.html#updating-gradle ).');
+        RunCommandSimple(AndroidProjectPath, 'gradle', Args.ToArray);
+      end;
       {$endif}
     finally FreeAndNil(Args) end;
   end;
@@ -352,7 +418,12 @@ var
   ApkName: string;
   PackageMode: TCompilationMode;
 begin
-  AndroidProjectPath := InclPathDelim(CreateTemporaryDir);
+  { calculate clean AndroidProjectPath }
+  AndroidProjectPath := OutputPath(Project.Path) +
+    'android' + PathDelim + 'project' + PathDelim;
+  if DirectoryExists(AndroidProjectPath) then
+    RemoveNonEmptyDir(AndroidProjectPath);
+
   PackageMode := SuggestedPackageMode;
 
   CalculateSigningProperties(PackageMode);
@@ -371,9 +442,6 @@ begin
     Project.Path + ApkName);
 
   Writeln('Build ' + ApkName);
-
-  if not LeaveTemp then
-    RemoveNonEmptyDir(AndroidProjectPath, true);
 end;
 
 procedure InstallAndroidPackage(const Name, QualifiedName: string);
@@ -397,8 +465,8 @@ begin
 
   Writeln('Reinstalling application identified as "' + QualifiedName + '".');
   Writeln('If this fails, an often cause is that a previous development version of the application, signed with a different key, remains on the device. In this case uninstall it first (note that it will clear your UserConfig data, unless you use -k) by "adb uninstall ' + QualifiedName + '"');
-  RunCommandSimple('adb', ['install', '-r', ApkName]);
-  Writeln('Install successfull.');
+  RunCommandSimple(AdbExe, ['install', '-r', ApkName]);
+  Writeln('Install successful.');
 end;
 
 procedure RunAndroidPackage(const Project: TCastleProject);
@@ -406,19 +474,20 @@ var
   ActivityName: string;
 begin
   if Project.AndroidProjectType = apBase then
-    ActivityName := 'android.app.NativeActivity' else
+    ActivityName := 'android.app.NativeActivity'
+  else
     ActivityName := 'net.sourceforge.castleengine.MainActivity';
-  RunCommandSimple('adb', ['shell', 'am', 'start',
+  RunCommandSimple(AdbExe, ['shell', 'am', 'start',
     '-a', 'android.intent.action.MAIN',
     '-n', Project.QualifiedName + '/' + ActivityName ]);
-  Writeln('Run successfull.');
+  Writeln('Run successful.');
   if (FindExe('bash') <> '') and
      (FindExe('grep') <> '') then
   begin
     Writeln('Running "adb logcat | grep ' + Project.Name + '" (we are assuming that your ApplicationName is ''' + Project.Name + ''') to see log output from your application. Just break this process with Ctrl+C to stop.');
     { run through ExecuteProcess, because we don't want to capture output,
       we want to immediately pass it to user }
-    ExecuteProcess(FindExe('bash'), ['-c', 'adb logcat | grep --text "' + Project.Name + '"']);
+    ExecuteProcess(FindExe('bash'), ['-c', '"' + AdbExe + '" logcat | grep --text "' + Project.Name + '"']);
   end else
     Writeln('Run "adb logcat | grep ' + Project.Name + '" (we are assuming that your ApplicationName is ''' + Project.Name + ''') to see log output from your application. Install "bash" and "grep" on $PATH (on Windows, you may want to install MinGW or Cygwin) to run it automatically here.');
 end;

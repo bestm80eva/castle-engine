@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
   Parts of this file are based on FPC packages/fcl-process/src/process.pp ,
@@ -81,8 +81,15 @@ procedure RunCommandSimple(
 var
   { Trivial verbosity global setting. }
   Verbose: boolean = false;
-  { Leave created temporary files. }
-  LeaveTemp: boolean = false;
+
+  { Output path base directory. Empty to use working project directory. }
+  OutputPathBase: string = '';
+
+{ Calculate the final location of output files (including the castle-engine-output
+  subdir part), as an absolute path ending with path delimiter.
+  Makes sure the dir exists, if CreateIfNecessary. }
+function OutputPath(const WorkingDirectory: string;
+  const CreateIfNecessary: boolean = true): string;
 
 type
   TReplaceMacros = function (const Source: string): string of object;
@@ -90,7 +97,7 @@ type
 function CreateTemporaryDir: string;
 
 type
-  TIconFileNames = class(TCastleStringList)
+  TImageFileNames = class(TCastleStringList)
   private
     FBaseUrl: string;
   public
@@ -267,7 +274,8 @@ begin
   { use FindExe to use our fixed PathFileSearch that does not accidentaly find
     "ant" directory as "ant" executable }
   if IsPathAbsolute(ExeName) then
-    AbsoluteExeName := ExeName else
+    AbsoluteExeName := ExeName
+  else
   begin
     AbsoluteExeName := FindExe(ExeName);
     if AbsoluteExeName = '' then
@@ -282,6 +290,35 @@ begin
       [ExeName, AbsoluteExeName, ProcessStatus]);
 end;
 
+var
+  FOutputPath: string;
+
+function OutputPath(const WorkingDirectory: string; const CreateIfNecessary: boolean): string;
+var
+  OutputNote: string;
+begin
+  if FOutputPath = '' then
+  begin
+    if OutputPathBase = '' then
+      FOutputPath := InclPathDelim(WorkingDirectory)
+    else
+      FOutputPath := InclPathDelim(OutputPathBase);
+    FOutputPath += 'castle-engine-output' + PathDelim;
+
+    if CreateIfNecessary then
+    begin
+      CheckForceDirectories(FOutputPath);
+
+      OutputNote := FOutputPath + 'DO-NOT-COMMIT-THIS-DIRECTORY.txt';
+      if not FileExists(OutputNote) then
+        CheckCopyFile(URIToFilenameSafe(ApplicationData(
+          'template-castle-engine-output-warning.txt')), OutputNote);
+    end;
+  end;
+
+  Result := FOutputPath;
+end;
+
 function CreateTemporaryDir: string;
 begin
   Result := InclPathDelim(GetTempDir(false)) +
@@ -291,9 +328,9 @@ begin
     Writeln('Created temporary dir for package: ' + Result);
 end;
 
-{ TIconFileNames ------------------------------------------------------------- }
+{ TImageFileNames ------------------------------------------------------------- }
 
-function TIconFileNames.FindExtension(const Extensions: array of string): string;
+function TImageFileNames.FindExtension(const Extensions: array of string): string;
 var
   I: Integer;
 begin
@@ -303,7 +340,7 @@ begin
       Exit(Strings[I]);
 end;
 
-function TIconFileNames.FindReadable: TCastleImage;
+function TImageFileNames.FindReadable: TCastleImage;
 var
   I: Integer;
   MimeType, URL: string;

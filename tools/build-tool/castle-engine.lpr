@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -26,9 +26,10 @@ uses SysUtils,
   CastleUtils, CastleParameters, CastleFindFiles, CastleLog,
   CastleFilesUtils, CastleURIUtils, CastleStringUtils,
   CastleApplicationProperties,
-  ToolArchitectures, ToolProject, ToolCompile, ToolUtils;
+  ToolArchitectures, ToolProject, ToolCompile, ToolUtils, ToolIOS;
 
 var
+  Target: TTarget;
   OS: TOS;
   CPU: TCPU;
   Plugin: boolean = false;
@@ -37,17 +38,18 @@ var
 
 const
   Version = CastleEngineVersion;
-  Options: array [0..8] of TOption =
+  Options: array [0..9] of TOption =
   (
     (Short: 'h'; Long: 'help'; Argument: oaNone),
     (Short: 'v'; Long: 'version'; Argument: oaNone),
+    (Short: #0 ; Long: 'target'; Argument: oaRequired),
     (Short: #0 ; Long: 'os'; Argument: oaRequired),
     (Short: #0 ; Long: 'cpu'; Argument: oaRequired),
     (Short: 'V'; Long: 'verbose'; Argument: oaNone),
     (Short: #0 ; Long: 'mode'; Argument: oaRequired),
     (Short: #0 ; Long: 'assume-compiled'; Argument: oaNone),
-    (Short: #0 ; Long: 'leave-temp'; Argument: oaNone),
-    (Short: #0 ; Long: 'plugin'; Argument: oaNone)
+    (Short: #0 ; Long: 'plugin'; Argument: oaNone),
+    (Short: #0 ; Long: 'fpc-version-iphone-simulator'; Argument: oaRequired)
   );
 
 procedure OptionProc(OptionNum: Integer; HasArgument: boolean;
@@ -56,66 +58,73 @@ begin
   case OptionNum of
     0:begin
         Writeln(
-          'castle-engine: Build and package tool for Castle Game Engine programs.' +NL+
+          'castle-engine: Build and package Castle Game Engine programs.' +NL+
           NL+
           'Call with the current directory set to your project, like this:' +NL+
           '  castle-engine [OPTIONS]... COMMAND' +NL+
           NL+
-          'Possible COMMANDs:' +NL+
+          'Possible commands:' +NL+
+          NL+
+          'create-manifest:' +NL+
+          '    Creates simple CastleEngineManifest.xml with guessed values.' +NL+
+          NL+
+          'compile:' +NL+
+          '    Compile project.' +NL+
+          '    By default compiles for the current OS / current CPU (' + OSToString(DefaultOS) + ' / ' + CPUToString(DefaultCPU) + ').' +NL+
+          '    You can use --os / --cpu options to compile to some other OS / CPU.' +NL+
+          '    You can use --target to compile for a special collection of OS/CPU' +NL+
+          '    platforms (like "iOS").' +NL+
+          NL+
+          'package:' +NL+
+          '    Package the application into the best archive format for given' +NL+
+          '    operating system (OS) / processor (CPU) / target.' +NL+
+          '    The OS, CPU and "target" can be changed just like at "compile".' +NL+
+          NL+
+          'install:' +NL+
+          '    Install the application created by previous "package" call.' +NL+
+          '    Useful when OS is "android", it installs' +NL+
+          '    the apk package created by previous "package" call' +NL+
+          '    for Android. Useful for quick testing of your app on a device' +NL+
+          '    connected through USB.' +NL+
+          '    Useful also for installing compiled web browser plugin.' +NL+
+          NL+
+          'run:' +NL+
+          '    Run the application. ' +NL+
+          '    On some platforms, it requires installing the application first' +NL+
+          '    (e.g. on Android, where we install and run on a device' +NL+
+          '    connected through USB). So run the "install" command before.' +NL+
+          '    On other platforms (e.g. standalone Windows, Linux, Mac OS X...),' +NL+
+          '    it simply runs the last compiled application.' +NL+
+          '    So just "compile" the application first.' +NL+
+          NL+
+          'package-source:' +NL+
+          '    Package the source code of the application.' +NL+
           NL +
-          '- "create-manifest" :' +NL+
-          '  Creates simple CastleEngineManifest.xml with guessed values.' +NL+
+          'clean:' +NL+
+          '    Clean leftover files from compilation and packaging.' +NL+
+          '    Does not remove final packaging output.' +NL+
           NL+
-          '- "compile" :' +NL+
-          '  Compile project.' +NL+
+          'simple-compile:' +NL+
+          '    Compile the Object Pascal file (unit/program/library) given' +NL+
+          '    as a parameter. This does not handle the Castle Game Engine projects' +NL+
+          '    defined by CastleEngineManifest.xml files.' +NL+
+          '    It merely calls "fpc" with proper command-line options for' +NL+
+          '    units/programs/libraries using our engine.' +NL+
+          '    Use this instead of "compile" only if there''s some good reason' +NL+
+          '    you don''t want to use CastleEngineManifest.xml to your project.' +NL+
           NL+
-          '- "package" :' +NL+
-          '  Package the application into the best archive format for given' +NL+
-          '  operating system (OS) / processor (CPU).' +NL+
-          '  By default uses current OS / CPU (' + OSToString(DefaultOS) + ' / ' + CPUToString(DefaultCPU) + ').' +NL+
-          '  You can also use --cpu or --os options to affect it.' +NL+
+          'auto-compress-textures:' +NL+
+          '    Create GPU-compressed versions of textures,' +NL+
+          '    for the textures mentioned in <auto_compressed_textures>' +NL+
+          '    inside the file data/material_properties.xml.' +NL+
           NL+
-          '- "install" :' +NL+
-          '  Install the application created by previous "package" call.' +NL+
-          '  Useful when OS is "android", it installs' +NL+
-          '  the apk package created by previous "package" call' +NL+
-          '  for Android. Useful for quick testing of your app on a device' +NL+
-          '  connected through USB.' +NL+
-          '  Useful also for installing compiled web browser plugin.' +NL+
+          'auto-compress-clean:' +NL+
+          '    Clear "auto_compressed" subdirectories, that should contain only' +NL+
+          '    the output created by "auto-compress-textures" target.' +NL+
           NL+
-          '- "run" :' +NL+
-          '  Run the application. ' +NL+
-          '  On some platforms, it requires installing the application first' +NL+
-          '  (e.g. on Android, where we install and run on a device' +NL+
-          '  connected through USB). So run the "install" command before.' +NL+
-          '  On other platforms (e.g. standalone Windows, Linux, Mac OS X...),' +NL+
-          '  it simply runs the last compiled application.' +NL+
-          '  So just "compile" the application first.' +NL+
-          NL+
-          '- "package-source" :' +NL+
-          '  Package the source code of the application.' +NL+
-          NL +
-          '- "clean" :' +NL+
-          '  Clean leftover files from compilation and packaging.' +NL+
-          '  Does not remove final packaging output.' +NL+
-          NL+
-          '- "simple-compile" :' +NL+
-          '  Compile the Object Pascal file (unit/program/library) given' +NL+
-          '  as a parameter. This does not handle the Castle Game Engine projects' +NL+
-          '  defined by CastleEngineManifest.xml files.' +NL+
-          '  It merely calls "fpc" with proper command-line options for' +NL+
-          '  units/programs/libraries using our engine.' +NL+
-          '  Use this instead of "compile" only if there''s some good reason' +NL+
-          '  you don''t want to use CastleEngineManifest.xml to your project.' +NL+
-          NL+
-          '- "auto-compress-textures" :' +NL+
-          '  Create GPU-compressed versions of textures,' +NL+
-          '  for the textures mentioned in <auto_compressed_textures>' +NL+
-          '  inside the file data/material_properties.xml.' +NL+
-          NL+
-          '- "auto-compress-clean" :' +NL+
-          '  Clear "auto_compressed" subdirectories, that should contain only' +NL+
-          '  the output created by "auto-compress-textures" target.' +NL+
+          'generate-program:' +NL+
+          '    Generate lpr and lpi files to edit and run this project in Lazarus.' +NL+
+          '    Depends on game_units being defined in the CastleEngineManifest.xml.' +NL+
           NL+
           'Available options are:' +NL+
           HelpOptionHelp +NL+
@@ -128,27 +137,38 @@ begin
           '                        before "package". Instead assume that compiled' +NL+
           '                        executable for given OS/CPU/mode' +NL+
           '                        is already present in the package directory.' +NL+
-          '  --leave-temp          Do not remove temporary files,' +NL+
-          '                        e.g. temporary Android package or Windows rc/manifest files.' +NL+
-          '                        Useful if you want to use them as basis for your customizations.' +NL+
           '  --plugin              Compile/package/install a browser plugin.' +NL+
+          '  --fpc-version-iphone-simulator VERSION' +NL+
+          '                        When compiling for iPhone Simulator, we pass' +NL+
+          '                        -V<VERSION> to the "fpc" command-line.' +NL+
+          '                        This is necessary if you use the official "FPC for iOS"' +NL+
+          '                        package (see the "Getting Started - iOS.rtf" inside' +NL+
+          '                        the "FPC for iOS" dmg for explanation).' +NL+
+          '                        By default it is "' + DefaultFPCVersionForIPhoneSimulator + '".' +NL+
+          '                        You can set this is empty to avoid passing any -V<VERSION>.' +NL+
+          TargetOptionHelp +
           OSOptionHelp +
           CPUOptionHelp +
+          NL+
+          'Full documentation on' + NL +
+          'https://github.com/castle-engine/castle-engine/wiki/Build-Tool' + NL +
           NL+
           SCastleEngineProgramHelpSuffix(ApplicationName, Version, true));
         Halt;
       end;
     1:begin
-        Writeln(Version);
+        // include ApplicationName in version, good for help2man
+        Writeln(ApplicationName + ' ' + Version);
         Halt;
       end;
-    2:OS := StringToOS(Argument);
-    3:CPU := StringToCPU(Argument);
-    4:Verbose := true;
-    5:Mode := StringToMode(Argument);
-    6:AssumeCompiled := true;
-    7:LeaveTemp := true;
+    2:Target := StringToTarget(Argument);
+    3:OS := StringToOS(Argument);
+    4:CPU := StringToCPU(Argument);
+    5:Verbose := true;
+    6:Mode := StringToMode(Argument);
+    7:AssumeCompiled := true;
     8:Plugin := true;
+    9:FPCVersionForIPhoneSimulator := Argument;
     else raise EInternalError.Create('OptionProc');
   end;
 end;
@@ -225,7 +245,11 @@ begin
     { use GetCurrentDir as WorkingDir,
       so calling "castle-engine simple-compile somesubdir/myunit.pas" works.
       Working dir for FPC must be equal to our own working dir. }
-    Compile(OS, CPU, Plugin, Mode, GetCurrentDir, FileName, nil);
+    case Target of
+      targetCustom: Compile(OS, CPU, Plugin, Mode, GetCurrentDir, FileName, nil);
+      targetIOS:    CompileIOS(Plugin, Mode, GetCurrentDir, FileName, nil);
+      else raise EInternalError.Create('Operation not implemented for this target');
+    end;
   end else
   begin
     if Command <> 'run' then
@@ -235,18 +259,18 @@ begin
       if Command = 'create-manifest' then
         Project.DoCreateManifest else
       if Command = 'compile' then
-        Project.DoCompile(OS, CPU, Plugin, Mode) else
+        Project.DoCompile(Target, OS, CPU, Plugin, Mode) else
       if Command = 'package' then
       begin
         if not AssumeCompiled then
         begin
           Project.DoClean;
-          Project.DoCompile(OS, CPU, Plugin, Mode);
+          Project.DoCompile(Target, OS, CPU, Plugin, Mode);
         end;
-        Project.DoPackage(OS, CPU, Plugin, Mode);
+        Project.DoPackage(Target, OS, CPU, Plugin, Mode);
       end else
       if Command = 'install' then
-        Project.DoInstall(OS, CPU, Plugin) else
+        Project.DoInstall(Target, OS, CPU, Plugin) else
       if Command = 'run' then
       begin
         RestOfParameters := TCastleStringList.Create;
@@ -254,7 +278,7 @@ begin
           RestOfParameters.Text := Parameters.Text;
           RestOfParameters.Delete(0); // remove our own name
           RestOfParameters.Delete(0); // remove "run"
-          Project.DoRun(OS, CPU, Plugin, RestOfParameters);
+          Project.DoRun(Target, OS, CPU, Plugin, RestOfParameters);
         finally FreeAndNil(RestOfParameters) end;
       end else
       if Command = 'package-source' then
@@ -268,6 +292,8 @@ begin
         Project.DoAutoGenerateTextures else
       if Command = 'auto-generate-clean' then
         Project.DoAutoGenerateClean else
+      if Command = 'generate-program' then
+        Project.DoGenerateProgram else
         raise EInvalidParams.CreateFmt('Invalid COMMAND to perform: "%s". Use --help to get usage information', [Command]);
     finally FreeAndNil(Project) end;
   end;

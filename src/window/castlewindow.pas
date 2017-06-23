@@ -1,5 +1,5 @@
 {
-  Copyright 2001-2016 Michalis Kamburelis.
+  Copyright 2001-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -342,40 +342,48 @@ unit CastleWindow;
      {$ifndef CASTLE_WINDOW_ANDROID}
       {$ifndef CASTLE_WINDOW_LIBRARY}
 
-       {$ifdef MSWINDOWS}
-         {$define CASTLE_WINDOW_WINAPI} // best (looks native and most functional) on Windows
-         { $define CASTLE_WINDOW_GTK_2}
-         { $define CASTLE_WINDOW_LCL}
-         { $define CASTLE_WINDOW_LIBRARY}
-         { $define CASTLE_WINDOW_TEMPLATE} // only useful for developers
-       {$endif}
-       {$ifdef UNIX}
-         {$ifdef ANDROID}
-           {$define CASTLE_WINDOW_ANDROID}
-         {$else}
-           {$ifdef DARWIN}
+       // PasDoc cannot handle "$if defined(xxx)" for now, workaround below
+       {$ifdef PASDOC}
+         {$define CASTLE_WINDOW_GTK_2}
+       {$else}
+
+         {$if defined(MSWINDOWS)}
+           // various possible backends on Windows:
+           {$define CASTLE_WINDOW_WINAPI} // best (looks native and most functional) on Windows
+           { $define CASTLE_WINDOW_GTK_2}
+           { $define CASTLE_WINDOW_LCL}
+           { $define CASTLE_WINDOW_LIBRARY}
+           { $define CASTLE_WINDOW_TEMPLATE} // only useful for developers
+         {$elseif defined(UNIX)}
+           {$if defined(ANDROID)}
+             {$define CASTLE_WINDOW_ANDROID}
+           {$elseif defined(IOS)}
+             {$define CASTLE_WINDOW_LIBRARY}
+             {$info Compiling CastleWindow with CASTLE_WINDOW_LIBRARY backend on iOS}
+           {$elseif defined(DARWIN)}
+             // various possible backends on Mac OS X (desktop):
              {$define CASTLE_WINDOW_XLIB} // easiest to compile
              { $define CASTLE_WINDOW_LCL} // best (looks native and most functional) on Mac OS X, but requires LCL
              { $define CASTLE_WINDOW_GTK_2}
              { $define CASTLE_WINDOW_LIBRARY}
              { $define CASTLE_WINDOW_TEMPLATE} // only useful for developers
+           {$elseif defined(CASTLE_ENGINE_PLUGIN)}
+             // on Unix plugin, you have to use Xlib
+             {$define CASTLE_WINDOW_XLIB}
+           {$elseif defined(OpenGLES)}
+             // when testing OpenGLES on desktop, the GTK2 backend cannot be used
+             {$define CASTLE_WINDOW_XLIB}
            {$else}
-             {$ifdef CASTLE_ENGINE_PLUGIN}
-               {$define CASTLE_WINDOW_XLIB} // on Unix plugin, you have to use Xlib
-             {$else}
-               {$ifndef OpenGLES}
-                 {$define CASTLE_WINDOW_GTK_2} // best (looks native and most functional) on Unix (except Mac OS X)
-               {$else}
-                 {$define CASTLE_WINDOW_XLIB}
-               {$endif}
-             {$endif}
+             // various possible backends on traditional Unix (Linux, FreeBSD) desktop:
+             {$define CASTLE_WINDOW_GTK_2} // best (looks native and most functional)
              { $define CASTLE_WINDOW_XLIB}
              { $define CASTLE_WINDOW_LCL}
              { $define CASTLE_WINDOW_LIBRARY}
              { $define CASTLE_WINDOW_TEMPLATE} // only useful for developers
            {$endif}
-         {$endif}
-       {$endif}
+         {$endif} // end of UNIX possibilities
+
+       {$endif} // end of "not PasDoc"
 
       {$endif}
      {$endif}
@@ -448,8 +456,12 @@ unit CastleWindow;
   {$define CASTLE_WINDOW_HAS_VIDEO_CHANGE}
 {$endif}
 {$ifdef CASTLE_WINDOW_XLIB}
-  {$define CASTLE_WINDOW_HAS_VIDEO_CHANGE}
-  {$define CASTLE_WINDOW_USE_XF86VMODE}
+  { Disable using XF86VMODE on Mac OS X, because it seems that newer XQuarts
+    does not provide it. }
+  {$ifndef DARWIN}
+    {$define CASTLE_WINDOW_HAS_VIDEO_CHANGE}
+    {$define CASTLE_WINDOW_USE_XF86VMODE}
+  {$endif}
 {$endif}
 {$ifdef CASTLE_WINDOW_GTK_ANY}
   {$ifdef UNIX}
@@ -479,8 +491,6 @@ unit CastleWindow;
   See also backend-specific TODOs in castlewindow_xxx.inc files.
 }
 
-{$I castleconf.inc}
-
 interface
 
 uses {$define read_interface_uses}
@@ -493,7 +503,7 @@ uses {$define read_interface_uses}
   CastleUtils, CastleClassUtils, CastleGLUtils, CastleImages, CastleGLImages,
   CastleKeysMouse, CastleStringUtils, CastleFilesUtils, CastleTimeUtils,
   CastleFileFilters, CastleUIControls, CastleGLContainer,
-  CastleCameras, CastleInternalPk3DConnexion,
+  CastleCameras, CastleInternalPk3DConnexion, CastleParameters, CastleSoundEngine,
   { Castle Game Engine units depending on VRML/X3D stuff }
   X3DNodes, CastleScene, CastleSceneManager, CastleLevels;
 
@@ -2424,6 +2434,7 @@ type
     FUserAgent: string;
     FDefaultWindowClass: TCastleWindowCustomClass;
     LastMaybeDoTimerTime: TTimerResult;
+    FVersion: string;
 
     FOpenWindows: TWindowList;
     function GetOpenWindows(Index: integer): TCastleWindowCustom;
@@ -2623,12 +2634,11 @@ type
 
     { Main window used for various purposes.
       On targets when only one TCastleWindowCustom instance makes sense
-      (like Android), set this to the reference of that window.
+      (like Android or iOS or web plugin), set this to the reference of that window.
       It is also used by TWindowProgressInterface to display progress bar. }
     property MainWindow: TCastleWindowCustom read FMainWindow write SetMainWindow;
 
     { User agent string, when running inside a browser, right now only meaningful when using NPAPI plugin. }
-    // TODO: should not be writeable from outside
     property UserAgent: string read FUserAgent;
 
     { Default window class to create when environment requires it,
@@ -2767,6 +2777,18 @@ type
     destructor Destroy; override;
 
     procedure HandleException(Sender: TObject); override;
+
+    { Handle standard command-line parameters of Castle Game Engine programs.
+      Handles:
+      @unorderedList(
+        @item(@code(-h / --help))
+        @item(@code(-v / --version), using @link(Version))
+        @item(All the parameters handled by @link(TCastleWindowCustom.ParseParameters).
+          Requires @link(MainWindow) to be set.)
+        @item(All the parameters handled by @link(TSoundEngine.ParseParameters).)
+      )
+    }
+    procedure ParseStandardParameters;
   published
     { Limit the number of (real) frames per second, to not hog the CPU.
       Set to zero to not limit.
@@ -2786,6 +2808,10 @@ type
       When LimitFPS is used for this purpose ("desired number of FPS"),
       it is also capped (by MaxDesiredFPS = 100.0). }
     property LimitFPS: Single read FLimitFPS write FLimitFPS default DefaultLimitFPS;
+
+    { The version of your application.
+      It may be used e.g. by @link(ParseStandardParameters). }
+    property Version: string read FVersion write FVersion;
   end;
 
   { @deprecated Deprecated name for TCastleApplication. }
@@ -2844,7 +2870,7 @@ function KeyString(const CharKey: char; const Key: TKey; const Modifiers: TModif
 
 implementation
 
-uses CastleParameters, CastleLog, CastleGLVersion, CastleURIUtils,
+uses CastleLog, CastleGLVersion, CastleURIUtils,
   CastleControls, CastleApplicationProperties,
   {$define read_implementation_uses}
   {$I castlewindow_backend.inc}
@@ -3026,7 +3052,7 @@ procedure TCastleWindowCustom.OpenCore;
     glViewport(WindowRect);
     Viewport2DSize[0] := WindowRect.Width;
     Viewport2DSize[1] := WindowRect.Height;
-    OrthoProjection(0, WindowRect.Width, 0, WindowRect.Height);
+    OrthoProjection(FloatRectangle(WindowRect));
 
     { Not only is RenderContext.Clear faster than DrawRectangle(WindowRect,...).
       In this case, it is also more reliable: in case of Android immersive
@@ -3982,11 +4008,11 @@ class function TCastleWindowCustom.ParseParametersHelp(
 const
   HelpForParam: array[TWindowParseOption] of string =
   ('  --geometry WIDTHxHEIGHT<sign>XOFF<sign>YOFF' +nl+
-   '                        Set initial window size and/or position' +nl+
-   '  --fullscreen          Set initial window size to cover whole screen',
+   '                        Set initial window size and/or position.' +nl+
+   '  --fullscreen          Set initial window size to cover whole screen.',
    '  --fullscreen-custom WIDTHxHEIGHT' +nl+
    '                        Try to resize the screen to WIDTHxHEIGHT and' +nl+
-   '                        then set initial window size to cover whole screen',
+   '                        then set initial window size to cover whole screen.',
    '  --display DISPLAY-NAME' +nl+
    '                        Use given X display name.',
    ''
@@ -4912,7 +4938,7 @@ procedure TCastleApplication.HandleException(Sender: TObject);
       except
         on E: TObject do
         begin
-          WritelnWarning('Exception', 'Exception ' + E.ClassName + ' occured in the error handler itself. This means we cannot report the exception by a nice dialog box. The *original* exception report follows.');
+          WritelnWarning('Exception', 'Exception ' + E.ClassName + ' occurred in the error handler itself. This means we cannot report the exception by a nice dialog box. The *original* exception report follows.');
           ExceptProc(OriginalObj, OriginalAddr, OriginalFrameCount, OriginalFrame);
           WritelnWarning('Exception', 'And below is a report about the exception within exception handler.');
           ExceptProc(SysUtils.ExceptObject, SysUtils.ExceptAddr, SysUtils.ExceptFrameCount, SysUtils.ExceptFrames);
@@ -4954,12 +4980,60 @@ begin
   ProcessMessage(true, true);
 end;
 
+// TODO: why this doesn't work as static TCastleApplication.OptionProc ?
+procedure ApplicationOptionProc(OptionNum: Integer; HasArgument: boolean;
+  const Argument: string; const SeparateArgs: TSeparateArgs; Data: Pointer);
+var
+  App: TCastleApplication;
+  HelpString: string;
+begin
+  App := TCastleApplication(Data);
+
+  case OptionNum of
+    0:begin
+        HelpString :=
+          ApplicationName + NL+
+          NL+
+          'Available command-line options:' + NL +
+          HelpOptionHelp + NL +
+          VersionOptionHelp + NL +
+          SoundEngine.ParseParametersHelp + NL+
+          NL;
+        if App.MainWindow <> nil then
+          HelpString += TCastleWindowCustom.ParseParametersHelp(StandardParseOptions, true) + NL + NL;
+        HelpString += SCastleEngineProgramHelpSuffix(ApplicationName, App.Version, true);
+        InfoWrite(HelpString);
+        Halt;
+      end;
+    1:begin
+        // include ApplicationName in --version output, this is good for help2man
+        Writeln(ApplicationName + ' ' + App.Version);
+        Halt;
+      end;
+    else raise EInternalError.Create('OptionProc');
+  end;
+end;
+
+procedure TCastleApplication.ParseStandardParameters;
+const
+  Options: array [0..1] of TOption =
+  (
+    (Short: 'h'; Long: 'help'; Argument: oaNone),
+    (Short: 'v'; Long: 'version'; Argument: oaNone)
+  );
+begin
+  SoundEngine.ParseParameters;
+  if MainWindow <> nil then
+    MainWindow.ParseParameters;
+  Parameters.Parse(Options, @ApplicationOptionProc, Self);
+end;
+
 { global --------------------------------------------------------------------- }
 
 procedure Resize2D(Container: TUIContainer);
 begin
   glViewport(Container.Rect);
-  OrthoProjection(0, Container.Width, 0, Container.Height);
+  OrthoProjection(FloatRectangle(Container.Rect));
 end;
 
 function KeyString(const CharKey: char; const Key: TKey;

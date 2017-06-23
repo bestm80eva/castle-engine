@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -20,9 +20,10 @@ unit CastleCameras;
 
 interface
 
-uses SysUtils, CastleVectors, CastleUtils, CastleKeysMouse, CastleBoxes, CastleQuaternions,
-  CastleFrustum, CastleUIControls, Classes, CastleRays, CastleTimeUtils, CastleInputs,
-  CastleTriangles, CastleRectangles;
+uses SysUtils, Classes,
+  CastleVectors, CastleUtils, CastleKeysMouse, CastleBoxes, CastleQuaternions,
+  CastleFrustum, CastleUIControls, CastleRays, CastleProjection, CastleTimeUtils,
+  CastleInputs, CastleTriangles, CastleRectangles;
 
 type
   { Possible navigation input types in cameras, set in TCamera.Input. }
@@ -3118,7 +3119,8 @@ begin
   Dir := ADir;
   Up := AUp;
   if AdjustUp then
-    MakeVectorsOrthoOnTheirPlane(Up, Dir) else
+    MakeVectorsOrthoOnTheirPlane(Up, Dir)
+  else
     MakeVectorsOrthoOnTheirPlane(Dir, Up);
 
   FRotations := CamDirUp2OrientQuat(Dir, Up).Conjugate;

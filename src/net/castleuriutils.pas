@@ -1,5 +1,5 @@
 {
-  Copyright 2007-2016 Michalis Kamburelis.
+  Copyright 2007-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -634,6 +634,11 @@ function URIMimeType(const URI: string; out Gzipped: boolean): string;
     if Ext = '.kanim' then Result := 'application/x-castle-anim-frames' else
     if Ext = '.castle-anim-frames' then Result := 'application/x-castle-anim-frames' else
     if Ext = '.json' then Result := 'application/json' else
+    { Various sites propose various MIME types for STL:
+      https://gist.github.com/allysonsouza/1bf9d4a0295a14373979cd23d15df0a9
+      application/wavefront-stl
+      application/vnd.ms-pki.stl }
+    if Ext = '.stl' then Result := 'application/x-stl' else
     // Images.
     { Only images that we cannot handle in CastleImages unit are listed below.
       For handled images, their extensions are mime types are recorded
@@ -645,6 +650,8 @@ function URIMimeType(const URI: string; out Gzipped: boolean): string;
     if Ext = '.htm' then Result := 'text/html' else
     if Ext = '.html' then Result := 'text/html' else
     if Ext = '.shtml' then Result := 'text/html' else
+    if Ext = '.css' then Result := 'text/css' else
+    if Ext = '.php' then Result := 'text/php' else
     // Plain text
     if Ext = '.txt' then Result := 'text/plain' else
     if Ext = '.pas' then Result := 'text/plain' else
@@ -679,6 +686,7 @@ function URIMimeType(const URI: string; out Gzipped: boolean): string;
     if Ext = '.eps' then Result := 'application/postscript' else
     if Ext = '.ps' then Result := 'application/postscript' else
     if Ext = '.pdf' then Result := 'application/pdf' else
+    if Ext = '.csv' then Result := 'application/csv' else
     // Documents - old MS Office
     if Ext = '.xls' then Result := 'application/vnd.ms-excel' else
     if Ext = '.doc' then Result := 'application/msword' else
@@ -698,6 +706,8 @@ function URIMimeType(const URI: string; out Gzipped: boolean): string;
     // Compressed archives
     if Ext = '.zip' then Result := 'application/zip' else
     if Ext = '.tar' then Result := 'application/x-tar' else
+    if Ext = '.rar' then Result := 'application/x-rar-compressed' else
+    if Ext = '.gz' then begin Result := 'application/gzip'; Gzipped := true; end else
     // Various
     if Ext = '.xml' then Result := 'application/xml' else
     if Ext = '.castlescript' then Result := 'text/x-castlescript' else

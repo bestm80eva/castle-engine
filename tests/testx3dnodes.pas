@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -31,7 +31,7 @@ type
 
     { This is really large test that reads and writes various VRML files
       and checks whether the generated VRML file is the same.
-      It checks "the same" by comparing sequence of X3DLexer
+      It checks "the same" by comparing sequence of X3D lexer
       tokens for them.
 
       Note that this is not guaranteed to pass for every file,
@@ -56,9 +56,8 @@ type
       All non-geometry nodes should not have chGeometry on any field. }
     procedure TestGeometryNodesChanges;
 
-    { All VRML 1 state nodes (except Coordinate)
-      should have Changes = [chVisibleVRML1State] (and possibly more,
-      like chUseBlending) }
+    { Almost all VRML 1 state nodes should have Changes = [chVisibleVRML1State]
+      (and possibly more, like chUseBlending). }
     procedure TestVisibleVRML1StateChanges;
 
     { All Color nodes should have Changes = [chColorNode] }
@@ -74,7 +73,10 @@ type
       return it, so there could be a chance that some field are left with
       [] by accident. This checks all the fields with Changes = [],
       they *must* be added to ConfirmedEmptyChanges function. }
-    procedure TestEmptyChanges;
+    { Later: maintaining a list of exceptions to this test was not efficient.
+      And we default we generate non-empty ChangesAlways, so it's not easy
+      to make this mistake anymore. }
+    // procedure TestEmptyChanges;
 
     { Try calling GetInternalTimeDependentHandler
       on every IAbstractTimeDependentNode, and use the handler.
@@ -92,12 +94,14 @@ type
     procedure TestOrthoViewpointFieldOfView;
     procedure TestFontStyle;
     procedure TestWeakLinkUnusedWarning;
+    procedure TestKeepExisting;
   end;
 
 implementation
 
-uses CastleUtils, X3DLexer, CastleClassUtils, CastleFilesUtils, X3DFields,
-  CastleTimeUtils, FGL, CastleDownload, X3DLoad, CastleApplicationProperties;
+uses CastleUtils, CastleInternalX3DLexer, CastleClassUtils, CastleFilesUtils,
+  X3DFields, CastleTimeUtils, FGL, CastleDownload, X3DLoad,
+  CastleApplicationProperties, CastleTextureImages;
 
 { TNode* ------------------------------------------------------------ }
 
@@ -1027,11 +1031,15 @@ begin
          (VRML1StateNode <> vsCoordinate3) then
       begin
         for J := 0 to N.FieldsCount - 1 do
+          { some fields are allowed exception }
           if (N.Fields[J].X3DName <> 'metadata') and
-             (N.Fields[J].X3DName <> 'effects') then
+             (N.Fields[J].X3DName <> 'effects') and
+             (N.Fields[J].X3DName <> 'crossOrigin') and
+             (N.Fields[J].X3DName <> 'textureProperties') then
           try
-            AssertTrue((chVisibleVRML1State in N.Fields[J].ExecuteChanges) or
-                   (chGeometryVRML1State in N.Fields[J].ExecuteChanges));
+            AssertTrue(
+              (chVisibleVRML1State in N.Fields[J].ExecuteChanges) or
+              (chGeometryVRML1State in N.Fields[J].ExecuteChanges));
           except
             Writeln('Failed on ', N.ClassName, ', field ', N.Fields[J].X3DName);
             raise;
@@ -1039,8 +1047,8 @@ begin
       end else
       begin
         for J := 0 to N.FieldsCount - 1 do
-          { alphaChannel field is allowed exception }
-          if N.Fields[J].X3DName <> 'alphaChannel' then
+          { some fields are allowed exception }
+          if (N.Fields[J].X3DName <> 'alphaChannel') then
           try
             AssertTrue(not (chVisibleVRML1State in N.Fields[J].ExecuteChanges));
             AssertTrue(not (chGeometryVRML1State in N.Fields[J].ExecuteChanges));
@@ -1122,6 +1130,7 @@ begin
   end;
 end;
 
+(*
 procedure TTestX3DNodes.TestEmptyChanges;
 
   { Confirmed fiels that may have Changes = []. }
@@ -1309,6 +1318,7 @@ begin
     finally FreeAndNil(N) end;
   end;
 end;
+*)
 
 procedure TTestX3DNodes.TestInternalTimeDependentHandlerAvailable;
 
@@ -1463,7 +1473,7 @@ var
 begin
   BS := TBufferedReadStream.Create(Stream, false);
   try
-    Result := LoadX3DClassic(BS , '');
+    Result := LoadX3DClassicInternal(BS , '');
   finally FreeAndNil(BS) end;
 end;
 
@@ -2024,6 +2034,28 @@ begin
   finally
     ApplicationProperties.OnWarning.Remove(@WeakLinkUnusedWarning);
   end;
+end;
+
+procedure TTestX3DNodes.TestKeepExisting;
+var
+  Texture: TImageTextureNode;
+  TextureProperties: TTexturePropertiesNode;
+begin
+  TextureProperties := TTexturePropertiesNode.Create;
+  TextureProperties.AnisotropicDegree := 8;
+  TextureProperties.MinificationFilter := minFastest;
+  AssertTrue(TextureProperties.MinificationFilter = minFastest);
+  TextureProperties.MagnificationFilter := magNicest;
+  AssertTrue(TextureProperties.MagnificationFilter = magNicest);
+  TextureProperties.KeepExisting := 1;
+
+  Texture := TImageTextureNode.Create;
+  Texture.FdTextureProperties.Value := TextureProperties;
+  FreeAndNil(Texture);
+
+  { This *will* cause SIGSEGV without KeepExisting := 1 above.
+    But it will work fine with KeepExisting := 1 above. }
+  FreeAndNil(TextureProperties);
 end;
 
 initialization

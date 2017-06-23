@@ -1,5 +1,5 @@
 {
-  Copyright 2006-2016 Michalis Kamburelis.
+  Copyright 2006-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -891,7 +891,7 @@ begin
     Camera := nil;
 
     MainScene := TCastleScene.Create(Self);
-    Inc(MainScene.Dirty);
+    Inc(MainScene.InternalDirty);
     MainScene.Load(Info.SceneURL);
 
     { Scene must be the first one on Items, this way Items.MoveCollision will
@@ -910,7 +910,7 @@ begin
     be after loading MainScene (because initial camera looks at MainScene
     contents).
     It will show it's own progress bar. }
-  Info.LevelResources.Prepare(BaseLights, GravityUp);
+  Info.LevelResources.Prepare(BaseLights);
   LevelResourcesPrepared := true;
   PreviousResources.Release;
   FreeAndNil(PreviousResources);
@@ -975,7 +975,7 @@ begin
 
   MainScene.ProcessEvents := true;
 
-  Dec(MainScene.Dirty);
+  Dec(MainScene.InternalDirty);
 end;
 
 procedure TGameSceneManager.LoadLevel(const AInfo: TLevelInfo);

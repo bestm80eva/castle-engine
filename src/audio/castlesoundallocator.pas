@@ -1,5 +1,5 @@
 {
-  Copyright 2006-2016 Michalis Kamburelis.
+  Copyright 2006-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -20,11 +20,12 @@ unit CastleSoundAllocator;
 
 interface
 
-uses SysUtils, CastleOpenAL, CastleClassUtils, Classes, CastleUtils, CastleVectors,
-  CastleXMLConfig, FGL;
+uses SysUtils, Classes, FGL,
+  CastleOpenAL, CastleClassUtils, CastleUtils, CastleVectors, CastleXMLConfig;
 
 type
   TSound = class;
+  TSoundAllocator = class;
 
   TSoundBuffer = type TALuint;
 
@@ -49,6 +50,7 @@ type
     FGain, FMinGain, FMaxGain, FPitch: Single;
     FBuffer: TSoundBuffer;
     FRolloffFactor, FReferenceDistance, FMaxDistance: Single;
+    FAllocator: TSoundAllocator;
     procedure SetPosition(const Value: TVector3Single);
     procedure SetVelocity(const Value: TVector3Single);
     procedure SetLooping(const Value: boolean);
@@ -61,11 +63,13 @@ type
     procedure SetRolloffFactor(const Value: Single);
     procedure SetReferenceDistance(const Value: Single);
     procedure SetMaxDistance(const Value: Single);
+    function GetOffset: Single;
+    procedure SetOffset(const Value: Single);
   public
     { Create sound. This allocates actual OpenAL source.
       @raises(ENoMoreOpenALSources If no more sources available.
         It should be caught and silenced by TSoundAllocator.AllocateSound.) }
-    constructor Create;
+    constructor Create(const AnAllocator: TSoundAllocator);
     destructor Destroy; override;
 
     property ALSource: TALuint read FALSource;
@@ -145,6 +149,25 @@ type
     property ReferenceDistance: Single read FReferenceDistance write SetReferenceDistance;
     property MaxDistance: Single read FMaxDistance write SetMaxDistance;
 
+    { Playback time of this sound, expressed in seconds.
+
+      This value will loop back to zero for looping sound sources.
+      Setting this to something larger than the @italic(sound buffer duration)
+      is ignored.
+
+      This offset refers to the sound like it had a @link(Pitch) equal 1.0
+      (when the sound is not slowed down or sped up).
+      So this offset will vary from 0 to the @italic(sound buffer duration),
+      regardless of the current @link(Pitch) value.
+      The @italic(actual) seconds passed since the sound started
+      playing may be different, if you will change the @link(Pitch)
+      to something else than 1.0.
+
+      Setting this on a not-yet playing sound source
+      (this is done by @link(TSoundEngine.PlaySound))
+      causes the sound to start playing from that offset. }
+    property Offset: Single read GetOffset write SetOffset;
+
     { Is the sound playing or paused. This is almost always @true for sounds
       returned by TSoundAllocator.AllocateSound, when it stops being @true
       --- the sound engine will realize it (soon), which will cause @link(Release)
@@ -213,6 +236,12 @@ type
     destructor Destroy; override;
     procedure ALContextOpen; virtual;
     procedure ALContextClose; virtual;
+
+    { Is the OpenAL version at least @code(AMajor.AMinor).
+      Available only when OpenAL is initialized, that is:
+      between @link(ALContextOpen) and @link(ALContextClose),
+      only when @link(TSoundEngine.ALActive). }
+    function ALVersionAtLeast(const AMajor, AMinor: Integer): boolean; virtual; abstract;
 
     { Allocate sound for playing. You should initialize the OpenAL sound
       properties and start playing the sound (you have
@@ -304,20 +333,22 @@ type
 
 implementation
 
-uses CastleALUtils, CastleConfig;
+uses CastleALUtils, CastleConfig, CastleLog;
 
 { TSound ---------------------------------------------------------- }
 
-constructor TSound.Create;
+constructor TSound.Create(const AnAllocator: TSoundAllocator);
 var
   ErrorCode: TALenum;
 begin
-  inherited;
+  inherited Create;
 
-  { I must check alGetError now, because I may need to catch
+  FAllocator := AnAllocator;
+
+  { We have to check alGetError now, because I may need to catch
     (and convert to ENoMoreOpenALSources exception) alGetError after
     alCreateSources. So I want to have "clean error state" first. }
-  CheckAL('prevention OpenAL check in TSound.Create');
+  CheckAL('Checking before TSound.Create work');
 
   alCreateSources(1, @FALSource);
 
@@ -440,6 +471,39 @@ begin
   alSourcef(ALSource, AL_MAX_DISTANCE, Value);
 end;
 
+function TSound.GetOffset: Single;
+begin
+  if FAllocator.ALVersionAtLeast(1, 1) then
+    Result := alGetSource1f(ALSource, AL_SEC_OFFSET)
+  else
+    Result := 0;
+end;
+
+procedure TSound.SetOffset(const Value: Single);
+var
+  ErrorCode: TALenum;
+begin
+  if FAllocator.ALVersionAtLeast(1, 1) then
+  begin
+    { We have to check alGetError now, because we need to catch
+      AL_INVALID_VALUE later. }
+    CheckAL('Checking before TSound.SetOffset work');
+
+    alSourcef(ALSource, AL_SEC_OFFSET, Value);
+
+    { capture AL_INVALID_VALUE, otherwise it would be too easy to make mistake
+      at setting offset to something like "duration-epsilon". }
+
+    ErrorCode := alGetError();
+    if ErrorCode = AL_INVALID_VALUE then
+      WritelnWarning('Ignoring TSound.SetOffset with offset %f', [Value])
+    else
+    if ErrorCode <> AL_NO_ERROR then
+      raise EALError.Create(ErrorCode,
+        'OpenAL error AL_xxx at setting sound offset : ' + alGetString(ErrorCode));
+  end;
+end;
+
 function TSound.PlayingOrPaused: boolean;
 var
   SourceState: TALuint;
@@ -496,7 +560,7 @@ begin
   FAllocatedSources := TSoundList.Create(false);
   FAllocatedSources.Count := MinAllocatedSources;
   for I := 0 to FAllocatedSources.Count - 1 do
-    FAllocatedSources[I] := TSound.Create;
+    FAllocatedSources[I] := TSound.Create(Self);
 end;
 
 procedure TSoundAllocator.ALContextClose;
@@ -572,7 +636,7 @@ begin
      (Cardinal(FAllocatedSources.Count) < MaxAllocatedSources) then
   begin
     try
-      Result := TSound.Create;
+      Result := TSound.Create(Self);
       FAllocatedSources.Add(Result);
     except
       { If TSound.Create raises ENoMoreOpenALSources ---
@@ -622,7 +686,7 @@ begin
       OldAllocatedSourcesCount := FAllocatedSources.Count;
       FAllocatedSources.Count := MinAllocatedSources;
       for I := OldAllocatedSourcesCount to FAllocatedSources.Count - 1 do
-        FAllocatedSources[I] := TSound.Create;
+        FAllocatedSources[I] := TSound.Create(Self);
     end;
   end;
 end;

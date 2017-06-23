@@ -189,6 +189,7 @@ location
 log
 logic
 long
+looping
 major
 material
 materials
@@ -253,6 +254,7 @@ print
 product
 profile
 progress
+projection
 prototype
 prototypes
 proxy
@@ -261,6 +263,7 @@ push
 quantity
 quit
 radius
+random
 rate
 ray
 read
@@ -358,6 +361,7 @@ vendor
 version
 vertexes
 verts
+vibrate
 videos
 viewports
 visible

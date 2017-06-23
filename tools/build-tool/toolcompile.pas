@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -23,13 +23,28 @@ uses Classes, ToolArchitectures;
 type
   TCompilationMode = (cmRelease, cmValgrind, cmDebug);
 
-{ Compile with FPC and proper command-line option given file. }
+{ Compile with FPC and proper command-line option given file.
+  SearchPaths, ExtraOptions may be @nil (same as empty). }
 procedure Compile(const OS: TOS; const CPU: TCPU; const Plugin: boolean;
   const Mode: TCompilationMode; const WorkingDirectory, CompileFile: string;
   const SearchPaths: TStrings);
 
+{ Output path, where temporary things like units (and iOS stuff)
+  are placed. }
+function CompilationOutputPath(const OS: TOS; const CPU: TCPU;
+  const WorkingDirectory: string): string;
+
 function ModeToString(const M: TCompilationMode): string;
 function StringToMode(const S: string): TCompilationMode;
+
+const
+  DefaultFPCVersionForIPhoneSimulator = '3.0.3';
+
+var
+  { The -V3.0.3 parameter is necessary if you got FPC
+    from the fpc-3.0.3.intel-macosx.cross.ios.dmg
+    (official "FPC for iOS" installation). }
+  FPCVersionForIPhoneSimulator: string = DefaultFPCVersionForIPhoneSimulator;
 
 implementation
 
@@ -78,6 +93,47 @@ begin
     Result.Release := StrToInt(Token);
 
   Writeln(Format('FPC version: %d.%d.%d', [Result.Major, Result.Minor, Result.Release]));
+end;
+
+type
+  TFPCVersionForIPhoneSimulatorChecked = class
+  strict private
+    class var
+      IsCached: boolean;
+      CachedValue: string;
+  public
+    { Return FPCVersionForIPhoneSimulator, but the 1st time this is run,
+      we check and optionally change the returned value to something better. }
+    class function Value: string; static;
+  end;
+
+class function TFPCVersionForIPhoneSimulatorChecked.Value: string; static;
+var
+  FpcOutput, FpcExe: string;
+  FpcExitStatus: Integer;
+begin
+  if not IsCached then
+  begin
+    CachedValue := FPCVersionForIPhoneSimulator;
+    IsCached := true;
+
+    if CachedValue <> '' then
+    begin
+      FpcExe := FindExe('fpc');
+      if FpcExe = '' then
+        raise Exception.Create('Cannot find "fpc" program on $PATH. Make sure it is installed, and available on $PATH');
+      MyRunCommandIndir(GetCurrentDir, FpcExe, ['-V' + CachedValue, '-iV'], FpcOutput, FpcExitStatus);
+      if FpcExitStatus <> 0 then
+      begin
+        WritelnWarning('Failed to execute FPC with "-V' + CachedValue + '" option, indicating that --fpc-version-iphone-simulator value is invalid.' + NL +
+          '  We will continue assuming that --fpc-version-iphone-simulator is empty (using normal FPC version to compile for iPhone Simulator).' + NL +
+          '  Call with the correct --fpc-version-iphone-simulator on the command-line to get rid of this warning.');
+        CachedValue := '';
+      end;
+    end;
+  end;
+
+  Result := CachedValue;
 end;
 
 type
@@ -145,10 +201,71 @@ var
       end;
   end;
 
+  procedure AddIOSOptions;
+  {$ifdef DARWIN}
+  const
+    SimulatorSdk = '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk';
+    DeviceSdk = '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk';
+  {$endif}
+  var
+    IOS: boolean;
+  begin
+    IOS := false;
+
+    if OS = iphonesim then
+    begin
+      IOS := true;
+      if TFPCVersionForIPhoneSimulatorChecked.Value <> '' then
+        FpcOptions.Add('-V' + TFPCVersionForIPhoneSimulatorChecked.Value);
+      {$ifdef DARWIN}
+      FpcOptions.Add('-XR' + SimulatorSdk);
+      {$endif}
+    end;
+
+    if (OS = darwin) and (CPU = arm) then
+    begin
+      IOS := true;
+      FpcOptions.Add('-Cparmv7');
+      FpcOptions.Add('-Cfvfpv3');
+      {$ifdef DARWIN}
+      FpcOptions.Add('-XR' + DeviceSdk);
+      {$endif}
+    end;
+
+    if (OS = darwin) and (CPU = aarch64) then
+    begin
+      IOS := true;
+      // -dCPUARM64 is checked by castleconf.inc
+      FpcOptions.Add('-dCPUARM64');
+      {$ifdef DARWIN}
+      FpcOptions.Add('-XR' + DeviceSdk);
+      {$endif}
+    end;
+
+    // options for all iOS platforms
+    if IOS then
+    begin
+      FpcOptions.Add('-Cn');
+      { This corresponds to the iOS version used when compiling FPC 3.0.3 RTL
+        from the latest official FPC release for iOS.
+        With -WP5.1, I got a lot of warnings that FPC RTL was for iOS 7.0.
+        Also, I got an error:
+        clang: error: -fembed-bitcode is not supported on versions of iOS prior to 6.0
+      }
+      FpcOptions.Add('-WP7.0');
+      { TODO: this option is probably useless for now, since we pass -Cn
+        and later create the library manually. }
+      FpcOptions.Add('-o' + CompilationOutputPath(OS, CPU, WorkingDirectory) + 'libcge_ios_project_unused.a');
+    end;
+  end;
+
 var
   FpcOutput, CastleEngineSrc1, CastleEngineSrc2, CastleEngineSrc3, FpcExe: string;
   FpcExitStatus: Integer;
+  FPCVer: TFPCVersion;
 begin
+  FPCVer := FPCVersion;
+
   FpcOptions := TCastleStringList.Create;
   try
     CastleEnginePath := GetEnvironmentVariable('CASTLE_ENGINE_PATH');
@@ -225,6 +342,10 @@ begin
         AddEnginePath('game');
         AddEnginePath('services');
 
+        if (FPCVer.Major < 3) or
+          ((FPCVer.Major = 3) and (FPCVer.Minor = 0)) then
+          AddEnginePath('compatibility/generics.collections/src');
+
         { Do not add castle-fpc.cfg.
           Instead, rely on code below duplicating castle-fpc.cfg logic
           (reasons: engine sources, with castle-fpc.cfg, may not be available
@@ -253,20 +374,6 @@ begin
     FpcOptions.Add('-Sh');
     FpcOptions.Add('-vm2045'); // do not show Warning: (2045) APPTYPE is not supported by the target OS
     FpcOptions.Add('-vm5024'); // do not show Hint: (5024) Parameter "..." not used
-    if FPCVersion.Major >= 3 then
-    begin
-      { do not show
-          Warning: Implicit string type conversion from "AnsiString" to "WideString"
-          Warning: Implicit string type conversion from "AnsiString" to "UnicodeString"
-        As we normally use AnsiString, and we deal with XML units
-        (using WideString / UnicodeString), this is normal situation for us. }
-      FpcOptions.Add('-vm4105'); // not available in FPC 2.6.4
-      { do not show
-          Warning: Implicit string type conversion with potential data loss from "WideString" to "AnsiString"
-        As we normally use AnsiString, and we deal with XML units
-        (using WideString / UnicodeString), this is normal situation for us. }
-      FpcOptions.Add('-vm4104'); // not available in FPC 2.6.4
-    end;
     FpcOptions.Add('-T' + OSToString(OS));
     FpcOptions.Add('-P' + CPUToString(CPU));
 
@@ -303,8 +410,42 @@ begin
 
     case OS of
       Android:
-        { See https://github.com/castle-engine/castle-engine/wiki/Android-Internal-Information#notes-about-compiling-with-hard-floats--cfvfpv3 }
-        FpcOptions.Add('-CfVFPV3');
+        begin
+          { Our platform is armeabi-v7a, see
+            data/android/base/app/src/main/jni/Application.mk .
+            Note: the option below seems not necessary when using -CfVFPV3?
+            At least, nothing crashes.
+            Possibly -CfVFPV3 implies this anyway. }
+          FpcOptions.Add('-CpARMV7A');
+
+          { Necessary to work fast.
+            See https://github.com/castle-engine/castle-engine/wiki/Android-FAQ#notes-about-compiling-with-hard-floats--cfvfpv3 }
+          FpcOptions.Add('-CfVFPV3');
+
+          { This allows to "sacrifice precision for performance"
+            according to http://wiki.freepascal.org/ARM_compiler_options .
+
+            But it causes too much precision loss?
+            escape_universe fails with
+            I/escape_universe( 7761): Exception: Exception "EInvalidGameConfig" :
+            I/escape_universe( 7761): Gun auto_fire_interval cannot be <= 0
+
+            Speed gain untested.
+
+            For now unused. }
+          //FpcOptions.Add('-OoFASTMATH');
+
+          { This should *not* be defined (when compiling our code or RTL).
+            It makes our code use -CaEABIHF/armeabi-v7a-hard
+            https://android.googlesource.com/platform/ndk/+/353e653824b79c43b948429870d0abeedebde386/docs/HardFloatAbi.md
+            which has incompatible call mechanism.
+
+            And indeed, doing PlaySound crashes at alSourcef call (to OpenAL)
+            from TSound.SetMinGain. Reproducible with escape_universe.
+
+            fpcupdeluxe default cross-compiler to Android also uses this. }
+          //FpcOptions.Add('-CaEABIHF');
+        end;
     end;
 
     if Plugin then
@@ -338,6 +479,9 @@ begin
     end;
 
     FpcOptions.Add(CompileFile);
+    FpcOptions.Add('-FU' + CompilationOutputPath(OS, CPU, WorkingDirectory));
+
+    AddIOSOptions;
 
     Writeln('FPC executing...');
     FpcExe := FindExe('fpc');
@@ -347,7 +491,8 @@ begin
     RunCommandIndirPassthrough(WorkingDirectory, FpcExe, FpcOptions.ToArray, FpcOutput, FpcExitStatus);
     if FpcExitStatus <> 0 then
     begin
-      if Pos('Fatal: Internal error', FpcOutput) <> 0 then
+      if (Pos('Fatal: Internal error', FpcOutput) <> 0) or
+         (Pos('Error: Compilation raised exception internally', FpcOutput) <> 0) then
       begin
         Writeln('-------------------------------------------------------------');
         Writeln('It seems FPC crashed with a compiler error (Internal error). If you can reproduce this problem, please report it to http://bugs.freepascal.org/ ! We want to help FPC developers to fix this problem, and the only way to do it is to report it. If you need help creating a good bugreport, speak up on the FPC or Castle Game Engine mailing list.');
@@ -369,7 +514,13 @@ begin
   finally FreeAndNil(FpcOptions) end;
 end;
 
-{ globals -------------------------------------------------------------------- }
+function CompilationOutputPath(const OS: TOS; const CPU: TCPU;
+  const WorkingDirectory: string): string;
+begin
+  Result := OutputPath(WorkingDirectory) + 'compilation' + PathDelim +
+    CPUToString(CPU) + '-' + OSToString(OS) + PathDelim;
+  CheckForceDirectories(Result);
+end;
 
 const
   CompilationModeNames: array [TCompilationMode] of string =

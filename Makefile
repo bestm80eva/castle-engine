@@ -30,8 +30,9 @@
 #     Same as clean, but also delete:
 #     - Emacs backup files (*~) and
 #     - Delphi backup files (*.~???)
-#     - pasdoc generated documentation in doc/pasdoc/
+#     - pasdoc generated documentation in doc/pasdoc/ and doc/reference/
 #     - closed-source libs you may have left in tools/build-tool/data
+#     - QtCreator *.pro.user
 #     This is a useful step when packing the release of CGE.
 #
 #   cleanall --
@@ -48,8 +49,8 @@ FIND:=find
 .PHONY: all
 all:
 	$(MAKE) --no-print-directory build-using-fpmake
-	tools/texturefont2pascal/texturefont2pascal_compile.sh
-	tools/image2pascal/image2pascal_compile.sh
+	tools/texture-font-to-pascal/texture-font-to-pascal_compile.sh
+	tools/image-to-pascal/image-to-pascal_compile.sh
 	tools/castle-curves/castle-curves_compile.sh
 	tools/build-tool/castle-engine_compile.sh
 	tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d_compile.sh
@@ -90,32 +91,43 @@ DATADIR=$(DATAROOTDIR)
 
 .PHONY: install
 install:
-	install tools/texturefont2pascal/texturefont2pascal $(BINDIR)
-	install tools/image2pascal/image2pascal $(BINDIR)
+	install -d $(BINDIR)
+	install tools/texture-font-to-pascal/texture-font-to-pascal $(BINDIR)
+	install tools/image-to-pascal/image-to-pascal $(BINDIR)
 	install tools/castle-curves/castle-curves $(BINDIR)
 	install tools/build-tool/castle-engine $(BINDIR)
 	install tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d $(BINDIR)
 #	cp -R tools/build-tool/data $(DATADIR)/castle-engine
+	install -d  $(DATADIR)
 	cd tools/build-tool/data/ && \
-	  $(FIND) . -type f -exec install -D '{}' $(DATADIR)/castle-engine/'{}' ';'
+	  $(FIND) . -type f -exec install --mode 644 -D '{}' $(DATADIR)/castle-engine/'{}' ';'
 
 .PHONY: uninstall
 uninstall:
-	rm -f  $(BINDIR)/texturefont2pascal \
-	       $(BINDIR)/image2pascal \
+	rm -f  $(BINDIR)/texture-font-to-pascal \
+	       $(BINDIR)/image-to-pascal \
 	       $(BINDIR)/castle-curves \
 	       $(BINDIR)/castle-engine \
 	       $(BINDIR)/sprite-sheet-to-x3d
 	rm -Rf $(DATADIR)/castle-engine
 
-# Strip libraries that cannot be distributed in Debian package of CGE for now,
-# because they (possibly) cannot be recompiled by Debian software right now
-# (or maybe they can, but noone had time to try it yet, and wrap in a script).
-# This concerns some Windows and Android libs.
+# Strip libraries that cannot be distributed in Debian package of CGE.
+# - Some of them (some bundled Windows, Android libs) cannot be recompiled
+#   automatically and easily for now (although they are open-source),
+#   and are not of sufficient interest to the Debian users.
+# - Some (Gradle) should be better used by depending on
+#   the appropriate Debian package.
 .PHONY: strip-precompiled-libraries
 strip-precompiled-libraries:
 	rm -Rf tools/build-tool/data/external_libraries/ \
-	       tools/build-tool/data/android/integrated-components/sound/
+	       tools/build-tool/data/android/integrated-services/sound/ \
+	       tools/build-tool/data/android/integrated-services/ogg_vorbis/ \
+	       tools/build-tool/data/android/base/gradle/ \
+	       tools/build-tool/data/android/base/gradlew \
+	       tools/build-tool/data/android/base/gradlew.bat \
+	       tools/build-tool/data/android/integrated/gradle/ \
+	       tools/build-tool/data/android/integrated/gradlew \
+	       tools/build-tool/data/android/integrated/gradlew.bat
 
 # examples and tools -----------------------------------------------------------
 
@@ -149,7 +161,9 @@ EXAMPLES_BASE_NAMES := \
   examples/joystick/joystick_demo \
   examples/fonts/test_font_break \
   examples/fonts/font_from_texture \
+  examples/fonts/test_local_characters/test_local_characters \
   examples/fonts/html_text \
+  examples/fonts/font_draw_over_image \
   examples/tiled/tiled_demo_standalone \
   examples/window/window_events \
   examples/window/window_menu \
@@ -158,6 +172,7 @@ EXAMPLES_BASE_NAMES := \
   examples/curves_surfaces/bezier_surfaces/animate_surface \
   examples/curves_surfaces/bezier_surfaces/design_surface \
   examples/curves_surfaces/interpolated_curves \
+  examples/curves_surfaces/simplest_curve_read \
   examples/space_filling_curve/draw_space_filling_curve \
   examples/research_special_rendering_methods/radiance_transfer/radiance_transfer \
   examples/research_special_rendering_methods/radiance_transfer/precompute_radiance_transfer \
@@ -187,8 +202,7 @@ EXAMPLES_BASE_NAMES := \
   examples/3d_rendering_processing/cars_demo \
   examples/3d_rendering_processing/render_3d_to_texture_and_use_as_quad \
   src/x3d/teapot/teapot_3d_to_pascal \
-  src/x3d/nodes_specification/x3d_nodes_spec_to_pascal/x3d_nodes_spec_to_pascal \
-  src/x3d/nodes_specification/generate_x3d_nodes_helpers/generate_x3d_nodes_to_pascal \
+  src/x3d/nodes_specification/x3d-nodes-to-pascal/x3d-nodes-to-pascal \
   examples/fixed_camera_game/rift \
   examples/isometric_game/sandbox \
   examples/3d_sound_game/lets_take_a_walk \
@@ -196,12 +210,13 @@ EXAMPLES_BASE_NAMES := \
   examples/resource_animations/resource_animations \
   examples/fps_game/fps_game \
   examples/2d_standard_ui/show_various_ui_controls/show_various_ui_controls \
+  examples/2d_standard_ui/edit_test/edit_test \
   examples/2d_standard_ui/timer_test/timer_test \
   examples/2d_standard_ui/zombie_fighter/zombie_fighter \
-  examples/android/android_demo/androiddemo_standalone \
+  examples/mobile/simple_3d_demo/simple_3d_demo_standalone \
   tools/build-tool/castle-engine \
-  tools/image2pascal/image2pascal \
-  tools/texturefont2pascal/texturefont2pascal \
+  tools/image-to-pascal/image-to-pascal \
+  tools/texture-font-to-pascal/texture-font-to-pascal \
   tools/castle-curves/castle-curves \
   tools/sprite-sheet-to-x3d/sprite-sheet-to-x3d \
   examples/random_generator/random_speed_test \
@@ -209,13 +224,14 @@ EXAMPLES_BASE_NAMES := \
 
 EXAMPLES_LAZARUS_BASE_NAMES := \
   examples/audio/test_al_source_allocator \
+  examples/audio/audio_player_scrubber/audio_player_scrubber \
   examples/lazarus/model_3d_viewer/model_3d_viewer \
   examples/lazarus/model_3d_with_2d_controls/model_3d_with_2d_controls \
   examples/lazarus/load_model_and_camera_manually/load_model_and_camera_manually \
   examples/lazarus/two_controls/two_controls \
   tests/test_castle_game_engine \
   src/library/castleengine \
-  examples/library/lcl_dynlib_tester/cge_dynlib_tester \
+  examples/library/lazarus_library_tester/cge_dynlib_tester \
   examples/random_generator/graphics_random_test
 
 EXAMPLES_UNIX_EXECUTABLES := $(EXAMPLES_BASE_NAMES) \
@@ -266,26 +282,32 @@ clean: cleanexamples
 			   -iname '*.libimp*.a' -or \
 			   -iname '*.apk' -or \
 	                   -iname '*.dcu' -or -iname '*.dpu' -or \
-	                   -iname '*.log' -or \
-			   -iname 'castleengine.dll' -or -iname 'libcastleengine.so' ')' \
+	                   -iname '*.log' ')' \
 	     -print \
 	     | xargs rm -f
-	$(FIND) . -type d -name lib -exec rm -Rf '{}' ';' -prune
+	$(FIND) . -type d '(' -name 'lib' -or \
+	                      -name 'castle-engine-output' ')' \
+	     -exec rm -Rf '{}' ';' -prune
 	rm -Rf packages/castle_base.pas \
 	  packages/castle_window.pas \
 	  packages/castle_components.pas \
 	  packages/alternative_castle_window_based_on_lcl.pas \
 	  tests/test_castle_game_engine \
 	  tests/test_castle_game_engine.exe \
-	  examples/android/drawing_toy/drawing_toy \
-	  examples/android/drawing_toy/drawing_toy.exe \
+	  examples/mobile/drawing_toy/drawing_toy \
+	  examples/mobile/drawing_toy/drawing_toy.exe \
 	  examples/portable_game_skeleton/my_fantastic_game \
 	  examples/portable_game_skeleton/my_fantastic_game.exe \
 	  examples/fonts/font_draw_over_image_output.png
+	$(MAKE) -C doc/man/man1/ clean
 # fpmake binary, and units/ produced by fpmake compilation
 	rm -Rf fpmake fpmake.exe units/ *.fpm
 # lazarus produces lib/ subdirectories during compilation
 	$(FIND) examples/ -type d -name lib -prune -exec rm -Rf '{}' ';'
+	rm -Rf src/library/ios-output/\
+	       src/library/libcastleengine.dylib \
+	       src/library/castleengine.dll \
+	       src/library/libcastleengine.so
 # clean every project with CastleEngineManifest.xml
 	$(FIND) . -iname CastleEngineManifest.xml -execdir castle-engine clean ';'
 
@@ -293,19 +315,16 @@ cleanmore: clean
 	$(FIND) . -type f '(' -iname '*~' -or \
 	                   -iname '*.bak' -or \
 	                   -iname '*.~???' -or \
+	                   -iname '*.pro.user' -or \
 			   -iname '*.blend1' \
 			')' -exec rm -f '{}' ';'
+	$(FIND) . -type d '(' -iname 'backup' \
+			')' -exec rm -Rf '{}' ';' -prune
 	$(MAKE) -C doc/pasdoc/ clean
-	rm -Rf tools/build-tool/data/android/integrated-components/google_play_services/google-play-services_lib/ \
-	       tools/build-tool/data/android/integrated-components/google_play_services/libs/*.jar \
-	       tools/build-tool/data/android/integrated-components/giftiz/GiftizSDKLibrary/ \
-	       tools/build-tool/data/android/integrated-components/chartboost/libs/*.jar \
-	       tools/build-tool/data/android/integrated-components/heyzap/AudienceNetwork/ \
-	       tools/build-tool/data/android/integrated-components/heyzap/unity-ads/ \
-	       tools/build-tool/data/android/integrated-components/heyzap/libs/*.jar \
-	       tools/build-tool/data/android/integrated-components/startapp/libs/*.jar \
-	       tools/build-tool/data/android/integrated-components/game_analytics/libs/*.jar \
-	       tools/build-tool/data/android/integrated-components/game_analytics/jni/*/*.so
+	rm -Rf tools/build-tool/data/android/integrated-services/giftiz/app/libs/*.jar \
+	       tools/build-tool/data/android/integrated-services/chartboost/app/libs/*.jar \
+	       tools/build-tool/data/android/integrated-services/heyzap/app/libs/*.jar \
+	       tools/build-tool/data/android/integrated-services/startapp/app/libs/*.jar
 
 cleanall: cleanmore
 

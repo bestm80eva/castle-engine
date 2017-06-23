@@ -1,5 +1,5 @@
 {
-  Copyright 2001-2016 Michalis Kamburelis.
+  Copyright 2001-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -282,7 +282,7 @@ begin
     for Y := Result.Height - 1 downto 0 do
       for X := 0 to Result.Width - 1 do
       begin
-        Color.R := Word(P^);
+        Color.R := P^;
         Color.G := Color.R;
         Color.B := Color.R;
         Color.A := $FF;
@@ -305,10 +305,10 @@ begin
     for Y := Result.Height - 1 downto 0 do
       for X := 0 to Result.Width - 1 do
       begin
-        Color.R := Word(P^[0]);
+        Color.R := P^[0];
         Color.G := Color.R;
         Color.B := Color.R;
-        Color.A := Word(P^[1]);
+        Color.A := P^[1];
         Result.Colors8Bit[X, Y] := Color;
         Inc(P);
       end;
@@ -328,9 +328,9 @@ begin
     for Y := Result.Height - 1 downto 0 do
       for X := 0 to Result.Width - 1 do
       begin
-        Color.R := Word(P^[0]);
-        Color.G := Word(P^[1]);
-        Color.B := Word(P^[2]);
+        Color.R := P^[0];
+        Color.G := P^[1];
+        Color.B := P^[2];
         Color.A := $FF;
         Result.Colors8Bit[X, Y] := Color;
         Inc(P);
@@ -351,10 +351,10 @@ begin
     for Y := Result.Height - 1 downto 0 do
       for X := 0 to Result.Width - 1 do
       begin
-        Color.R := Word(P^[0]);
-        Color.G := Word(P^[1]);
-        Color.B := Word(P^[2]);
-        Color.A := Word(P^[3]);
+        Color.R := P^[0];
+        Color.G := P^[1];
+        Color.B := P^[2];
+        Color.A := P^[3];
         Result.Colors8Bit[X, Y] := Color;
         Inc(P);
       end;
@@ -385,11 +385,7 @@ end;
 function LoadGIF(Stream: TStream;
   const AllowedImageClasses: array of TEncodedImageClass): TEncodedImage;
 begin
-  {$ifndef VER2_2}
   Result := LoadFpImage(Stream, AllowedImageClasses, TFPReaderGIF.Create);
-  {$else}
-  raise EImageLoadError.Create('Cannot load GIF when compiled with old FPC <= 2.2.x');
-  {$endif}
 end;
 
 function LoadTGA(Stream: TStream;
@@ -418,11 +414,7 @@ end;
 function LoadPSD(Stream: TStream;
   const AllowedImageClasses: array of TEncodedImageClass): TEncodedImage;
 begin
-  {$ifndef VER2_2}
   Result := LoadFpImage(Stream, AllowedImageClasses, TFPReaderPSD.Create);
-  {$else}
-  raise EImageLoadError.Create('Cannot load PSD when compiled with old FPC <= 2.2.x');
-  {$endif}
 end;
 
 function LoadPCX(Stream: TStream;
@@ -491,7 +483,7 @@ function TCastleImage.MakeResizedToFpImage(ResizeWidth, ResizeHeight: Cardinal;
       riCatrom         : Result := TCatromInterpolation.Create;
       riHanning        : Result := THanningInterpolation.Create;
       riHamming        : Result := THammingInterpolation.Create;
-      else EInternalError.Create('CreateInterpolation:I?');
+      else raise EInternalError.Create('CreateInterpolation:I?');
     end;
   end;
 

@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -46,7 +46,7 @@ begin
     check SoundEngine.SoundInitializationReport, SoundEngine.ALActive etc. }
   Buffer := SoundEngine.LoadBuffer(URL, Duration);
   Writeln('Sound loaded, duration in seconds: ', Duration:1:2);
-  SoundEngine.PlaySound(Buffer, false, false, 0, 1, 0, 1, ZeroVector3Single);
+  SoundEngine.PlaySound(Buffer);
 
   { Wait enough time to finish playing. (because PlaySound above doesn't block).
     In this simple program, we just sleep enough time

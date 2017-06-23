@@ -1,5 +1,5 @@
 {
-  Copyright 2006-2016 Michalis Kamburelis.
+  Copyright 2006-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -75,7 +75,7 @@ type
     FKnockBackDistance: Single;
     FKnockBackSpeed: Single;
 
-    RadiusConfigured: Single;
+    FRadiusOverride: Single;
 
     FAttackDamageConst: Single;
     FAttackDamageRandom: Single;
@@ -88,15 +88,13 @@ type
     FFallSound: TSoundType;
 
     FMiddleHeight: Single;
-
-    { Calculated @link(Radius) suitable for this creature.
-      This is set by our @link(Prepare) using RadiusCalculate method. }
-    RadiusCalculated: Single;
   protected
+    { Sphere radius for collision detection for alive creatures.
+      Must be something <> 0 for collision detection to work.
+      Defining it in the creature resource.xml file
+      (as radius="xxx" attribute on the root <resource> element)
+      overrides the results of this function. }
     function RadiusCalculate(const GravityUp: TVector3Single): Single; virtual;
-    procedure PrepareCore(const BaseLights: TAbstractLightInstancesList;
-      const GravityUp: TVector3Single;
-      const DoProgress: boolean); override;
 
     { Can the "up" vector be skewed, that is: not equal to gravity up vector.
       This is used when creating creature in CreateCreature.
@@ -142,35 +140,6 @@ type
       in this case, make sure that the values (explicitly set or automatically
       calculated) are suitable for both flying and non-flying states. }
     property Flying: boolean read FFlying write FFlying default DefaultFlying;
-
-    { Sphere radius for collision detection for alive creatures.
-      Must be something <> 0 for collision detection.
-
-      You can define it in the creature resource.xml file,
-      by setting radius="xxx" attribute on the root <resource> element.
-
-      If it's not defined (or zero) in resource.xml file,
-      then we use automatically calculated radius using RadiusCalculate,
-      that is adjusted to the bounding box of the animation.
-
-      Note that this radius is not used at all when creature is dead,
-      as dead creatures usually have wildly
-      different boxes (tall humanoid creature probably has a flat bounding
-      box when it's dead lying on the ground), so trying to use (the same)
-      radius would only cause problems.
-      Using sphere collision is also not necessary for dead creatures.
-      See T3D.Sphere for more discussion about when the sphere is a useful
-      bounding volume.
-
-      The sphere center is the Middle point ("eye position") of the given creature.
-      If the creature may be affected by gravity then
-      make sure radius is < than PreferredHeight of the creature,
-      see T3D.PreferredHeight, otherwise creature may get stuck into ground.
-      In short, if you use the default implementations,
-      PreferredHeight is by default @italic(MiddleHeight (default 0.5) *
-      bounding box height). Your radius must be smaller
-      for all possible bounding box heights when the creature is not dead. }
-    function Radius: Single;
 
     property SoundSuddenPain: TSoundType
       read FSoundSuddenPain write FSoundSuddenPain;
@@ -278,7 +247,9 @@ type
       Game developers can use the RenderDebug3D variable to easily
       visualize the bounding sphere (and other things) around resources.
       The bounding sphere is centered around the point derived from MiddleHeight
-      setting and with given (or automatically calculated) @link(Radius). }
+      setting and with given creature radius
+      (given in resource.xml, or automatically calculated by
+      @link(TCreatureResource.RadiusCalculate)). }
     property MiddleHeight: Single
       read FMiddleHeight write FMiddleHeight
       default T3DCustomTransform.DefaultMiddleHeight;
@@ -295,6 +266,43 @@ type
       The default is the sound named 'creature_fall'. }
     property FallSound: TSoundType
       read FFallSound write FFallSound;
+
+    { Radius used for resolving (some) collisions with the alive creature.
+      This can be read from the @code(resource.xml) file.
+      When zero, the radius is automatically calculated looking at the
+      3D model bounding box, and taking into account gravity direction,
+      see @link(TCreatureResource.RadiusCalculate). }
+    property RadiusOverride: Single
+      read FRadiusOverride write FRadiusOverride;
+
+    { Sphere radius for collision detection for alive creatures.
+      Must be something <> 0 for collision detection to work.
+
+      You can define it in the creature resource.xml file,
+      by setting radius="xxx" attribute on the root <resource> element.
+
+      If it's not defined (or zero) in resource.xml file,
+      then we use automatically calculated radius using RadiusCalculate,
+      that is adjusted to the bounding box of the animation.
+
+      Note that this radius is not used at all when creature is dead,
+      as dead creatures usually have wildly
+      different boxes (tall humanoid creature probably has a flat bounding
+      box when it's dead lying on the ground), so trying to use (the same)
+      radius would only cause problems.
+      Using sphere collision is also not necessary for dead creatures.
+      See T3D.Sphere for more discussion about when the sphere is a useful
+      bounding volume.
+
+      The sphere center is the Middle point ("eye position") of the given creature.
+      If the creature may be affected by gravity then
+      make sure radius is < than PreferredHeight of the creature,
+      see T3D.PreferredHeight, otherwise creature may get stuck into ground.
+      In short, if you use the default implementations,
+      PreferredHeight is by default @italic(MiddleHeight (default 0.5) *
+      bounding box height). Your radius must be smaller
+      for all possible bounding box heights when the creature is not dead. }
+    function Radius(const GravityUp: TVector3Single): Single;
   end;
 
   { Creature with smart walking and attacking intelligence.
@@ -752,6 +760,53 @@ type
       read FRemoveDead write FRemoveDead default DefaultRemoveDead;
   end;
 
+  { 3D axis, as an X3D node, to easily visualize debug things. }
+  TDebugAxis = class(TComponent)
+  strict private
+    FShape: TShapeNode;
+    FGeometry: TLineSetNode;
+    FCoord: TCoordinateNode;
+    FTransform: TTransformNode;
+    procedure SetRender(const Value: boolean);
+    procedure SetPosition(const Value: TVector3Single);
+    procedure SetScaleFromBox(const Value: TBox3D);
+  public
+    constructor Create(const AOwner: TComponent; const Color: TCastleColorRGB); reintroduce;
+    property Root: TTransformNode read FTransform;
+    property Render: boolean {read GetRender} {} write SetRender;
+    property Position: TVector3Single {read GetPosition} {} write SetPosition;
+    property ScaleFromBox: TBox3D {read GetScale} {} write SetScaleFromBox;
+  end;
+
+  { A scene that can be added as T3DCustomTransform child to visualize
+    it's parameters (bounding volumes and such).
+
+    After constructing it, you must always @link(Attach) it to some
+    parent @link(T3DCustomTransform) instance.
+    It will insert this scene as a child of indicated parent,
+    and also it will follow the parent parameters then (updating
+    itself in every Update, looking at parent properties). }
+  TDebug3DCustomTransform = class(TCastleScene)
+  strict private
+    FBoxTransform: TTransformNode;
+    FBoxShape: TShapeNode;
+    FBox: TBoxNode;
+    FSphereTransform: TTransformNode;
+    FSphereShape: TShapeNode;
+    FSphere: TSphereNode;
+    FMiddleAxis: TDebugAxis;
+    FOuterTransform: TTransformNode;
+    FTransform: TTransformNode;
+    FParent: T3DCustomTransform;
+    procedure UpdateParent;
+  public
+    constructor Create(AOwner: TComponent); override;
+    procedure Attach(const AParent: T3DCustomTransform);
+    procedure Update(const SecondsPassed: Single; var RemoveMe: TRemoveType); override;
+    { Add things that are expressed in world-space under this transform. }
+    property RootTransform: TTransformNode read FTransform;
+  end;
+
   { Base creature, using any TCreatureResource. }
   TCreature = class(T3DAlive)
   private
@@ -766,13 +821,11 @@ type
     FDebugCaptionsText: TTextNode;
     FDebugCaptionsFontStyle: TFontStyleNode;
 
-    FDebug3D: TCastleScene;
-    FDebug3DBoxTransform: TTransformNode;
-    FDebug3DBoxShape: TShapeNode;
-    FDebug3DBox: TBoxNode;
-    FDebug3DSphereTransform: TTransformNode;
-    FDebug3DSphereShape: TShapeNode;
-    FDebug3DSphere: TSphereNode;
+    FDebug3D: TDebug3DCustomTransform;
+
+    { Calculated @link(Radius) suitable for this creature.
+      This is cached result of @link(TCreatureResource.Radius). }
+    FRadius: Single;
 
     procedure SoundRelease(Sender: TSound);
   protected
@@ -798,9 +851,6 @@ type
     function GetExists: boolean; override;
 
     property Resource: TCreatureResource read FResource;
-
-    procedure Render(const Frustum: TFrustum;
-      const Params: TRenderParams); override;
 
     procedure Update(const SecondsPassed: Single; var RemoveMe: TRemoveType); override;
 
@@ -838,7 +888,12 @@ type
       sphere advantages (stairs climbing), and using sphere with dead
       creatures would unnecessarily force the sphere radius to be small
       and Middle to be high. }
-    function Sphere(out Radius: Single): boolean; override;
+    function Sphere(out ARadius: Single): boolean; override;
+
+    { Sphere radius for collision detection for alive creatures.
+      Must be something <> 0 for collision detection to work.
+      @seealso TCreatureResource.Radius }
+    function Radius: Single;
 
     property CollidesWithMoving default true;
   end;
@@ -875,6 +930,9 @@ type
     WaypointsSaved_End: TSector;
     WaypointsSaved: TWaypointList;
     MiddleForceBoxTime: Single;
+
+    FDebug3DAlternativeTargetAxis: TDebugAxis;
+    FDebug3DLastSensedEnemyAxis: TDebugAxis;
   protected
     { Last known information about enemy. }
     HasLastSensedEnemy: boolean;
@@ -929,7 +987,6 @@ type
     property State: TCreatureState read FState default csIdle;
 
     procedure Update(const SecondsPassed: Single; var RemoveMe: TRemoveType); override;
-    procedure Render(const Frustum: TFrustum; const Params: TRenderParams); override;
 
     procedure Hurt(const LifeLoss: Single; const HurtDirection: TVector3Single;
       const AKnockbackDistance: Single; const Attacker: T3DAlive); override;
@@ -976,6 +1033,159 @@ uses SysUtils, DOM, CastleGL, CastleFilesUtils, CastleGLUtils,
 var
   DisableCreatures: Cardinal;
 
+{ TDebugAxis ----------------------------------------------------------------- }
+
+constructor TDebugAxis.Create(const AOwner: TComponent; const Color: TCastleColorRGB);
+begin
+  inherited Create(AOwner);
+
+  FCoord := TCoordinateNode.Create;
+  FCoord.FdPoint.Items.AddArray([
+    Vector3Single(-1,  0,  0), Vector3Single(1, 0, 0),
+    Vector3Single( 0, -1,  0), Vector3Single(0, 1, 0),
+    Vector3Single( 0,  0, -1), Vector3Single(0, 0, 1)
+  ]);
+
+  FGeometry := TLineSetNode.Create;
+  FGeometry.FdVertexCount.Items.AddArray([2, 2, 2]);
+  FGeometry.FdCoord.Value := FCoord;
+
+  FShape := TShapeNode.Create;
+  FShape.Geometry := FGeometry;
+  FShape.Material := TMaterialNode.Create;
+  FShape.Material.ForcePureEmissive;
+  FShape.Material.EmissiveColor := Color;
+
+  FTransform := TTransformNode.Create;
+  FTransform.FdChildren.Add(FShape);
+end;
+
+procedure TDebugAxis.SetRender(const Value: boolean);
+begin
+  FShape.Render := Value;
+end;
+
+procedure TDebugAxis.SetPosition(const Value: TVector3Single);
+begin
+  FTransform.Translation := Value;
+end;
+
+procedure TDebugAxis.SetScaleFromBox(const Value: TBox3D);
+var
+  ScaleFactor: Single;
+begin
+  ScaleFactor := Value.AverageSize(true, 1) / 2;
+  FTransform.Scale := Vector3Single(ScaleFactor, ScaleFactor, ScaleFactor);
+end;
+
+{ TDebug3DCustomTransform ---------------------------------------------------- }
+
+constructor TDebug3DCustomTransform.Create(AOwner: TComponent);
+var
+  Root: TX3DRootNode;
+begin
+  inherited;
+
+  FBox := TBoxNode.Create;
+
+  FBoxShape := TShapeNode.Create;
+  FBoxShape.Geometry := FBox;
+  FBoxShape.Shading := shWireframe;
+
+  FBoxShape.Material := TMaterialNode.Create;
+  FBoxShape.Material.ForcePureEmissive;
+  FBoxShape.Material.EmissiveColor := GrayRGB;
+
+  FBoxTransform := TTransformNode.Create;
+  FBoxTransform.FdChildren.Add(FBoxShape);
+
+  FSphere := TSphereNode.Create;
+  FSphere.Slices := 10;
+  FSphere.Stacks := 10;
+
+  FSphereShape := TShapeNode.Create;
+  FSphereShape.Geometry := FSphere;
+  FSphereShape.Shading := shWireframe;
+
+  FSphereShape.Material := TMaterialNode.Create;
+  FSphereShape.Material.ForcePureEmissive;
+  FSphereShape.Material.EmissiveColor := GrayRGB;
+
+  FSphereTransform := TTransformNode.Create;
+  FSphereTransform.FdChildren.Add(FSphereShape);
+
+  FMiddleAxis := TDebugAxis.Create(Self, YellowRGB);
+
+  FTransform := TTransformNode.Create;
+  FTransform.FdChildren.Add(FBoxTransform);
+  FTransform.FdChildren.Add(FSphereTransform);
+  FTransform.FdChildren.Add(FMiddleAxis.Root);
+
+  FOuterTransform := TTransformNode.Create;
+  FOuterTransform.FdChildren.Add(FTransform);
+
+  Root := TX3DRootNode.Create;
+  Root.FdChildren.Add(FOuterTransform);
+
+  Load(Root, true);
+  Collides := false;
+  Pickable := false;
+  CastShadowVolumes := false;
+  ExcludeFromStatistics := true;
+  InternalExcludeFromParentBoundingVolume := true;
+end;
+
+procedure TDebug3DCustomTransform.Attach(const AParent: T3DCustomTransform);
+begin
+  FParent := AParent;
+  FParent.Add(Self);
+
+  { call Update explicitly for the 1st time, to initialize everything now }
+  UpdateParent;
+end;
+
+procedure TDebug3DCustomTransform.Update(const SecondsPassed: Single; var RemoveMe: TRemoveType);
+begin
+  inherited;
+  if FParent <> nil then // do not update if not attached to parent
+    UpdateParent;
+end;
+
+procedure TDebug3DCustomTransform.UpdateParent;
+var
+  BBox: TBox3D;
+  R: Single;
+begin
+  { resign when FParent.World unset, then Middle and PreferredHeight
+    cannot be calculated yet }
+  if FParent.World = nil then Exit;
+
+  // update FOuterTransform, FTransform to cancel parent's transformation
+  FOuterTransform.Rotation := RotationNegate(FParent.Rotation);
+  FTransform.Translation := -FParent.Translation;
+
+  // show FParent.BoundingBox
+  BBox := FParent.BoundingBox;
+  FBoxShape.Render := not BBox.IsEmpty;
+  if FBoxShape.Render then
+  begin
+    FBox.Size := BBox.Size;
+    FBoxTransform.Translation := BBox.Center;
+  end;
+
+  // show FParent.Sphere
+  FSphereShape.Render := FParent.Sphere(R);
+  if FSphereShape.Render then
+  begin
+    FSphereTransform.Translation := FParent.Middle;
+    FSphere.Radius := R;
+  end;
+
+  // show FParent.Middle
+  FMiddleAxis.Position := FParent.Middle;
+  FMiddleAxis.ScaleFromBox := BBox;
+end;
+
 { TCreatureResource -------------------------------------------------------------- }
 
 constructor TCreatureResource.Create(const AName: string);
@@ -1011,7 +1221,7 @@ begin
     DefaultSoundDieTiedToCreature);
   DefaultMaxLife := ResourceConfig.GetFloat('default_max_life',
     DefaultDefaultMaxLife);
-  RadiusConfigured := ResourceConfig.GetFloat('radius', 0.0);
+  FRadiusOverride := ResourceConfig.GetFloat('radius', 0.0);
   AttackDamageConst := ResourceConfig.GetFloat('attack/damage/const',
     DefaultAttackDamageConst);
   AttackDamageRandom := ResourceConfig.GetFloat('attack/damage/random',
@@ -1037,53 +1247,11 @@ begin
   Result := true;
 end;
 
-function TCreatureResource.Radius: Single;
-begin
-  if RadiusConfigured <> 0 then
-    Result := RadiusConfigured else
-    Result := RadiusCalculated;
-end;
-
-function TCreatureResource.RadiusCalculate(const GravityUp: TVector3Single): Single;
-var
-  GC: Integer;
-  Box: TBox3D;
-  MaxRadiusForGravity: Single;
-begin
-  { calculate default RadiusCalculated.
-    Descendants can override this to provide better radius calculation
-    (or define radius in resource.xml file), so it's Ok to make here
-    some assumptions that should suit usual cases, but not necessarily
-    all possible cases --- e.g. our MaxRadiusForGravity calculation assumes you
-    let default T3DCustomTransform.PreferredHeight algorithm to work. }
-
-  if Animations.Count = 0 then
-    Box := EmptyBox3D else
-    Box := Animations[0].BoundingBox;
-
-  GC := MaxAbsVectorCoord(GravityUp);
-
-  if Box.IsEmpty then
-    Result := 0 else
-  if Flying then
-    { For Flying creatures, larger Radius (that *really* surrounds whole
-      model from middle) is better. Also, MaxRadiusForGravity doesn't concern
-      us then. }
-    Result := Box.MaxSize / 2 else
-  begin
-    { Maximum radius value that allows gravity to work,
-      assuming default T3D.PreferredHeight implementation,
-      and assuming that Box is the smallest possible bounding box of our creature. }
-    MaxRadiusForGravity := 0.9 * MiddleHeight * Box.Data[1, GC];
-    Result := Min(Box.Radius2D(GC), MaxRadiusForGravity);
-  end;
-end;
-
 function TCreatureResource.CreateCreature(World: T3DWorld;
   const APosition, ADirection: TVector3Single;
   const MaxLife: Single): TCreature;
 begin
-  { This is only needed if you forgot to add creature to <resources>.
+  { This is only needed if you did not add creature to <resources>.
 
     Note: we experimented with moving this to TCreature.PrepareResource,
     call Resource.Prepare from there. But it just doesn't fully work:
@@ -1092,7 +1260,7 @@ begin
     For example, on missiles like thrown web we do Sound3d that uses LerpLegsMiddle.
     Also TCreature.Idle (which definitely needs Resource) may get called before
     PrepareResource. IOW, PrepareResource is just too late. }
-  Prepare(World.BaseLights, World.GravityUp);
+  Prepare(World.BaseLights);
 
   Result := CreatureClass.Create(World { owner }, MaxLife);
   { set properties that in practice must have other-than-default values
@@ -1134,12 +1302,51 @@ begin
   CreateCreature(World, APosition, CreatureDirection, MaxLife);
 end;
 
-procedure TCreatureResource.PrepareCore(const BaseLights: TAbstractLightInstancesList;
-  const GravityUp: TVector3Single;
-  const DoProgress: boolean);
+function TCreatureResource.Radius(const GravityUp: TVector3Single): Single;
 begin
-  inherited;
-  RadiusCalculated := RadiusCalculate(GravityUp);
+  if RadiusOverride <> 0 then
+    Result := RadiusOverride
+  else
+    Result := RadiusCalculate(GravityUp);
+end;
+
+function TCreatureResource.RadiusCalculate(const GravityUp: TVector3Single): Single;
+var
+  GC: Integer;
+  Box: TBox3D;
+  MaxRadiusForGravity: Single;
+begin
+  { calculate radius.
+    Descendants can override this to provide better radius calculation,
+    and user can always override this in resource.xml (in which case,
+    RadiusCalculate is never called).
+
+    So it's Ok to make here some assumptions that should suit usual cases,
+    but not necessarily all possible cases ---
+    e.g. our MaxRadiusForGravity calculation assumes you
+    let default T3DCustomTransform.PreferredHeight algorithm to work. }
+
+  if Animations.Count = 0 then
+    Box := EmptyBox3D
+  else
+    Box := Animations[0].BoundingBox;
+
+  GC := MaxAbsVectorCoord(GravityUp);
+
+  if Box.IsEmpty then
+    Result := 0 else
+  if Flying then
+    { For Flying creatures, larger Radius (that *really* surrounds whole
+      model from middle) is better. Also, MaxRadiusForGravity doesn't concern
+      us then. }
+    Result := Box.MaxSize / 2 else
+  begin
+    { Maximum radius value that allows gravity to work,
+      assuming default T3D.PreferredHeight implementation,
+      and assuming that Box is the smallest possible bounding box of our creature. }
+    MaxRadiusForGravity := 0.9 * MiddleHeight * Box.Data[1, GC];
+    Result := Min(Box.Radius2D(GC), MaxRadiusForGravity);
+  end;
 end;
 
 { TWalkAttackCreatureResource ------------------------------------------------ }
@@ -1243,21 +1450,6 @@ begin
   FRemoveDead := DefaultRemoveDead;
 end;
 
-function TMissileCreatureResource.RadiusCalculate(const GravityUp: TVector3Single): Single;
-var
-  Box: TBox3D;
-begin
-  Box := FlyAnimation.BoundingBox;
-
-  { Use MinSize for missile, since smaller radius for missiles
-    forces player to aim more precisely. Smaller radius may also allow some
-    partial collisions to go undetected, but that's not a problem as the
-    collisions imperfections are not noticeable for fast moving missiles. }
-  if not Box.IsEmpty then
-    Result := Box.MinSize / 2 else
-    Result := inherited;
-end;
-
 function TMissileCreatureResource.CreatureClass: TCreatureClass;
 begin
   Result := TMissileCreature;
@@ -1311,6 +1503,22 @@ begin
     for missiles. See T3DCustomTransform.MiddleHeight. }
 
   Result.Gravity := false;
+end;
+
+function TMissileCreatureResource.RadiusCalculate(const GravityUp: TVector3Single): Single;
+var
+  Box: TBox3D;
+begin
+  Box := FlyAnimation.BoundingBox;
+
+  { Use MinSize for missile, since smaller radius for missiles
+    forces player to aim more precisely. Smaller radius may also allow some
+    partial collisions to go undetected, but that's not a problem as the
+    collisions imperfections are not noticeable for fast moving missiles. }
+  if not Box.IsEmpty then
+    Result := Box.MinSize / 2
+  else
+    Result := inherited;
 end;
 
 { TStillCreatureResource ---------------------------------------------------- }
@@ -1413,37 +1621,6 @@ begin
   Result := Lerp(A, Position, Middle);
 end;
 
-procedure TCreature.Render(const Frustum: TFrustum; const Params: TRenderParams);
-
-  {$ifndef OpenGLES} // TODO-es
-  { This code uses a lot of deprecated stuff. It is already marked with TODO above. }
-  {$warnings off}
-  procedure DebugBoundingVolumes;
-  begin
-    glColorv(Yellow);
-    glDrawAxisWire(Middle, GetChild.BoundingBox.AverageSize(true, 0));
-  end;
-  {$warnings on}
-  {$endif}
-
-begin
-  inherited;
-
-  {$ifndef OpenGLES} // TODO-es
-  if (RenderDebugCaptions or RenderDebug3D) and
-     GetExists and Frustum.Box3DCollisionPossibleSimple(BoundingBox) and
-     (not Params.Transparent) and Params.ShadowVolumesReceivers then
-  begin
-    glPushAttrib(GL_ENABLE_BIT);
-      glDisable(GL_LIGHTING);
-      glEnable(GL_DEPTH_TEST);
-      if RenderDebug3D then
-        DebugBoundingVolumes;
-    glPopAttrib;
-  end;
-  {$endif}
-end;
-
 procedure TCreature.UpdateDebugCaption(const Lines: TCastleStringList);
 begin
   Lines.Add(Format('%s [%s / %s]',
@@ -1481,79 +1658,16 @@ procedure TCreature.Update(const SecondsPassed: Single; var RemoveMe: TRemoveTyp
   end;
 
   procedure UpdateDebug3D;
-  var
-    Root: TX3DRootNode;
-    BBox: TBox3D;
-    R: Single;
   begin
     if RenderDebug3D and (FDebug3D = nil) then
     begin
       { create FDebug3D on demand }
-
-      FDebug3DBox := TBoxNode.Create;
-
-      FDebug3DBoxShape := TShapeNode.Create;
-      FDebug3DBoxShape.Geometry := FDebug3DBox;
-      FDebug3DBoxShape.Shading := shWireframe;
-
-      FDebug3DBoxShape.Material := TMaterialNode.Create;
-      FDebug3DBoxShape.Material.ForcePureEmissive;
-      FDebug3DBoxShape.Material.EmissiveColor := GrayRGB;
-
-      FDebug3DBoxTransform := TTransformNode.Create;
-      FDebug3DBoxTransform.FdChildren.Add(FDebug3DBoxShape);
-
-      FDebug3DSphere := TSphereNode.Create;
-      FDebug3DSphere.Slices := 10;
-      FDebug3DSphere.Stacks := 10;
-
-      FDebug3DSphereShape := TShapeNode.Create;
-      FDebug3DSphereShape.Geometry := FDebug3DSphere;
-      FDebug3DSphereShape.Shading := shWireframe;
-
-      FDebug3DSphereShape.Material := TMaterialNode.Create;
-      FDebug3DSphereShape.Material.ForcePureEmissive;
-      FDebug3DSphereShape.Material.EmissiveColor := GrayRGB;
-
-      FDebug3DSphereTransform := TTransformNode.Create;
-      FDebug3DSphereTransform.FdChildren.Add(FDebug3DSphereShape);
-
-      Root := TX3DRootNode.Create;
-      Root.FdChildren.Add(FDebug3DBoxTransform);
-      Root.FdChildren.Add(FDebug3DSphereTransform);
-
-      FDebug3D := TCastleScene.Create(Self);
-      FDebug3D.Load(Root, true);
-      FDebug3D.Collides := false;
-      FDebug3D.Pickable := false;
-
-      Add(FDebug3D);
+      FDebug3D := TDebug3DCustomTransform.Create(Self);
+      FDebug3D.Attach(Self);
     end;
 
     if FDebug3D <> nil then
       FDebug3D.Exists := RenderDebug3D;
-
-    if RenderDebug3D then
-    begin
-      if GetChild <> nil then
-        BBox := GetChild.BoundingBox
-      else
-        BBox := TBox3D.Empty;
-      FDebug3DBoxShape.Render := not BBox.IsEmpty;
-      if FDebug3DBoxShape.Render then
-      begin
-        FDebug3DBox.Size := BBox.Size;
-        FDebug3DBoxTransform.Translation := BBox.Center;
-      end;
-
-      FDebug3DSphereShape.Render := Sphere(R);
-      if FDebug3DSphereShape.Render then
-      begin
-        { move the sphere center to be at Middle }
-        FDebug3DSphereTransform.Translation := Middle - GetTranslation;
-        FDebug3DSphere.Radius := R;
-      end;
-    end;
   end;
 
   procedure UpdateDebugCaptions;
@@ -1585,6 +1699,9 @@ procedure TCreature.Update(const SecondsPassed: Single; var RemoveMe: TRemoveTyp
       FDebugCaptions.Load(Root, true);
       FDebugCaptions.Collides := false;
       FDebugCaptions.Pickable := false;
+      FDebugCaptions.CastShadowVolumes := false;
+      FDebugCaptions.ExcludeFromStatistics := true;
+      FDebugCaptions.InternalExcludeFromParentBoundingVolume := true;
 
       Add(FDebugCaptions);
     end;
@@ -1659,10 +1776,17 @@ begin
       Resource.AttackKnockbackDistance, Self);
 end;
 
-function TCreature.Sphere(out Radius: Single): boolean;
+function TCreature.Sphere(out ARadius: Single): boolean;
 begin
   Result := GetExists and (not Dead);
-  Radius := Resource.Radius;
+  ARadius := Radius;
+end;
+
+function TCreature.Radius: Single;
+begin
+  if FRadius = 0 then
+    FRadius := Resource.Radius(World.GravityUp);
+  Result := FRadius;
 end;
 
 { TWalkAttackCreature -------------------------------------------------------- }
@@ -2025,7 +2149,7 @@ var
         SetState(csWalk) else
       if Gravity and
          (AngleRadBetweenDirectionToEnemy < 0.01) and
-         BoundingBox.PointInside2D(LastSensedEnemy, World.GravityCoordinate) then
+         BoundingBox.Contains2D(LastSensedEnemy, World.GravityCoordinate) then
       begin
         { Then the enemy (or it's last known position) is right above or below us.
           Since we can't fly, we can't get there. Standing in place
@@ -2367,6 +2491,34 @@ var
       RemoveMe := rtRemoveAndFree;
   end;
 
+  procedure UpdateDebug3D;
+  begin
+    if RenderDebug3D then
+    begin
+      if FDebug3DAlternativeTargetAxis = nil then
+      begin
+        FDebug3DAlternativeTargetAxis := TDebugAxis.Create(Self, BlueRGB);
+        FDebug3D.RootTransform.FdChildren.Add(FDebug3DAlternativeTargetAxis.Root);
+        FDebug3D.ChangedAll;
+      end;
+
+      FDebug3DAlternativeTargetAxis.Render := HasAlternativeTarget;
+      FDebug3DAlternativeTargetAxis.ScaleFromBox := BoundingBox;
+      FDebug3DAlternativeTargetAxis.Position := AlternativeTarget;
+
+      if FDebug3DLastSensedEnemyAxis = nil then
+      begin
+        FDebug3DLastSensedEnemyAxis := TDebugAxis.Create(Self, RedRGB);
+        FDebug3D.RootTransform.FdChildren.Add(FDebug3DLastSensedEnemyAxis.Root);
+        FDebug3D.ChangedAll;
+      end;
+
+      FDebug3DLastSensedEnemyAxis.Render := HasLastSensedEnemy;
+      FDebug3DLastSensedEnemyAxis.ScaleFromBox := BoundingBox;
+      FDebug3DLastSensedEnemyAxis.Position := LastSensedEnemy;
+    end;
+  end;
+
 var
   E: T3DOrient;
 begin
@@ -2427,6 +2579,8 @@ begin
     to initial value, which is GravityUp. }
   if not Gravity then
     UpPrefer(World.GravityUp);
+
+  UpdateDebug3D;
 end;
 
 function TWalkAttackCreature.GetChild: T3D;
@@ -2577,37 +2731,6 @@ begin
   end;
 end;
 
-procedure TWalkAttackCreature.Render(const Frustum: TFrustum; const Params: TRenderParams);
-{$ifndef OpenGLES} // TODO-es
-var
-  AxisSize: Single;
-{$endif}
-begin
-  inherited;
-
-  {$ifndef OpenGLES} // TODO-es
-  { This code uses a lot of deprecated stuff. It is already marked with TODO above. }
-  {$warnings off}
-  if RenderDebug3D and GetExists and
-     (not Params.Transparent) and Params.ShadowVolumesReceivers then
-  begin
-    AxisSize := BoundingBox.AverageSize(true, 0);
-    if HasAlternativeTarget then
-    begin
-      glColorv(Blue);
-      glDrawAxisWire(AlternativeTarget, AxisSize);
-    end;
-
-    if HasLastSensedEnemy then
-    begin
-      glColorv(Red);
-      glDrawAxisWire(LastSensedEnemy, AxisSize);
-    end;
-  end;
-  {$warnings on}
-  {$endif}
-end;
-
 { TMissileCreature ----------------------------------------------------------- }
 
 constructor TMissileCreature.Create(AOwner: TComponent; const AMaxLife: Single);
@@ -2694,7 +2817,7 @@ begin
         begin
           C := TCreature(World[I]);
           if (C <> Self) and C.GetCollides and
-            C.BoundingBox.SphereSimpleCollision(Middle, Resource.Radius) then
+            C.BoundingBox.SphereSimpleCollision(Middle, Radius) then
           begin
             HitCreature(C);
             { TODO: projectiles shouldn't do here "break". }

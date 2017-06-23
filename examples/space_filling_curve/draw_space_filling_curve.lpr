@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -71,7 +71,7 @@ var
   LastX: Integer = 1;
   LastY: Integer = 1;
   StepNum: Int64 = 0;
-  { inited in main program }
+  { initialized in main program }
   StepXSize, StepYSize, StepsToRedisplay: Integer;
 
 procedure Step(Angle: TSFCAngle; StepFuncData: Pointer);

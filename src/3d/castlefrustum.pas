@@ -1,5 +1,5 @@
 {
-  Copyright 2005-2016 Michalis Kamburelis.
+  Copyright 2005-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -26,7 +26,7 @@ type
   { Order of planes of TFrustum.
 
     (This order is the same as the order of params to
-    procedure FrustumProjMatrix and OpenGL's glFrustum routine.
+    procedure FrustumProjectionMatrix and OpenGL's glFrustum routine.
     Article [http://www2.ravensoft.com/users/ggribb/plane%20extraction.pdf]
     has swapped bottom and top positions). }
   TFrustumPlane = (fpLeft, fpRight, fpBottom, fpTop, fpNear, fpFar);
@@ -92,8 +92,8 @@ type
       This is equivalent to 1-parameter Init
       with Matrix = ModelviewMatrix * ProjectionMatrix.
       This way you can get from OpenGL your two matrices (modelview
-      and projection) (or you can calculate them using routines in this
-      unit like @link(FrustumProjMatrix)), then pass them to this routine
+      and projection) (or you can calculate them using routines
+      like @link(FrustumProjectionMatrix)), then pass them to this routine
       and you get your current viewing frustum. }
     constructor Init(const ProjectionMatrix, ModelviewMatrix: TMatrix4Single);
   public
@@ -140,7 +140,9 @@ type
       @groupBegin
     }
     procedure CalculatePoints(out FrustumPoints: TFrustumPointsSingle); overload;
+    {$ifdef CASTLE_HAS_DOUBLE_PRECISION}
     procedure CalculatePoints(out FrustumPoints: TFrustumPointsDouble); overload;
+    {$endif CASTLE_HAS_DOUBLE_PRECISION}
     { @groupEnd }
 
     { Checks for collision between frustum and sphere.
@@ -366,6 +368,7 @@ begin
   end;
 end;
 
+{$ifdef CASTLE_HAS_DOUBLE_PRECISION}
 procedure TFrustum.CalculatePoints(out FrustumPoints: TFrustumPointsDouble);
 var
   Camera: TVector3Double;
@@ -408,6 +411,7 @@ begin
     FrustumPoints[7].W := 0;
   end;
 end;
+{$endif CASTLE_HAS_DOUBLE_PRECISION}
 
 function TFrustum.SphereCollisionPossible(
   const SphereCenter: TVector3Single; const SphereRadiusSqr: Single):

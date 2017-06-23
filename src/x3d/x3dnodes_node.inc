@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -580,8 +580,7 @@
 
         AfterTraverse;
 
-        Add Self to State.LastNodes (for VRML 1.0 state nodes, see
-          TraverseStateLastNodesClasses);
+        Add Self to State.VRML1State (for VRML 1.0 state nodes);
       )
 
       Note: setting TraverseIntoChildren to false means that some
@@ -760,7 +759,7 @@
     procedure SaveToStream(Writer: TX3DWriter); override;
 
     { Do the nodes of (exactly) this class should be included
-      in VRML 1.0 state (see TX3DGraphTraverseState.LastNodes). }
+      in VRML 1.0 state (see TX3DGraphTraverseState.VRML1State). }
     class function VRML1StateNode(out StateNode: TVRML1StateNode): boolean;
 
     { Some nodes are present only in specific VRML/X3D version.
@@ -928,11 +927,12 @@
     property PrototypeInstanceHelpers: TX3DNode read FPrototypeInstanceHelpers;
     { @groupEnd }
 
-    { Should we use this node when URN is required by EXTERNPROTO ?
+    { Does this node matches the given URN. This is used when searching for an built-in
+      implementation of a node declared in X3D using the EXTERNPROTO.
 
       Implementors note: in this class, this returns @false.
-      You can use constants like URNVRML97Nodes and URNKambiNodes to help
-      implementing this. }
+      You can use constants like @link(URNVRML97Nodes) and functions like
+      @link(URNMatchingCastle) to implement this easily. }
     class function URNMatching(const URN: string): boolean; virtual;
 
     { Default value of "containerField" attribute for this node in X3D XML
@@ -992,7 +992,7 @@
       (including TCastleScene). But if more than one scene is used,
       then all the scenes must be static (TCastleSceneCore.ProcessEvents = false
       and TCastleSceneCore.Static = true). Static scenes are ones
-      that never change, that is never have any TCastleSceneCore.ChangedField called.
+      that never change, that is never have any TCastleSceneCore.InternalChangedField called.
       This means that events processing is disabled, and also
       other dynamic scene changes from code are disallowed.
 
@@ -1521,7 +1521,7 @@ type
     finally Child.AfterTraverse(StateStack) end;
 
     if Child.VRML1StateNode(StateNode) then
-      StateStack.Top.SetLastNodes(StateNode, Child, false);
+      StateStack.Top.VRML1State.Nodes[StateNode] := Child;
   end;
 
 function TX3DNode.TraverseInternal(StateStack: TX3DGraphTraverseStateStack;
@@ -1872,17 +1872,17 @@ var
          (Attr.Name = SAttrDEF) then
         Continue;
 
-      Index := IndexOfField(Attr.Name);
+      Index := IndexOfField(Attr.NodeName8);
       if Index >= 0 then
       begin
-        Fields[Index].ParseXMLAttribute(Attr.Value, Reader);
+        Fields[Index].ParseXMLAttribute(Attr.NodeValue8, Reader);
         { Note that saving PositionInParent from XML attributes order
           isn't really useful, as FPC DOM unit already sorted
           Element.Attributes (TDOMNamedNodeMap) by name. }
         Fields[Index].PositionInParent := Position;
         Inc(Position);
       end else
-        WritelnWarning('VRML/X3D', 'Unknown X3D field name (unhandled X3D XML attribute) "' + Attr.Name + '" in node "' + X3DType + '"');
+        WritelnWarning('VRML/X3D', 'Unknown X3D field name (unhandled X3D XML attribute) "' + Attr.NodeName8 + '" in node "' + X3DType + '"');
     end;
   end;
 
@@ -1979,7 +1979,7 @@ var
                 and is different than current ContainerField. }
               FieldIndex := IndexOfField(Child.DefaultContainerField);
               if FieldIndex >= 0 then
-                WritelnWarning('VRML/X3D', 'X3D XML: containerField indicated unknown field name ("' + ContainerField + '" by node "' + Child.X3DType + '" inside node "' + X3DType + '"), using the default containerField value "' + Child.DefaultContainerField + '" succeded');
+                WritelnWarning('VRML/X3D', 'X3D XML: containerField indicated unknown field name ("' + ContainerField + '" by node "' + Child.X3DType + '" inside node "' + X3DType + '"), using the default containerField value "' + Child.DefaultContainerField + '" succeeded');
             end;
 
             if FieldIndex >= 0 then
@@ -2766,7 +2766,7 @@ begin
   { We're in "class function", so Self = reference to our class.
     So simple comparison "Self = ..." is what we want. }
   for SN := Low(SN) to High(SN) do
-    if TraverseStateLastNodesClasses[SN] = Self then
+    if VRML1StateClasses[SN] = Self then
     begin
       StateNode := SN;
       Result := true;

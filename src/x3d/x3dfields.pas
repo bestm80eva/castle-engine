@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -21,7 +21,7 @@ unit X3DFields;
 interface
 
 uses Classes, SysUtils, DOM, FGL,
-  CastleVectors, X3DLexer, CastleUtils, CastleClassUtils,
+  CastleVectors, CastleInternalX3DLexer, CastleUtils, CastleClassUtils,
   CastleImages, CastleStringUtils, CastleInterfaces,
   X3DTime, CastleGenericLists, CastleColors, CastleQuaternions;
 
@@ -31,11 +31,26 @@ const
   DefaultRotation: TVector4Single = (0, 0, 1, 0);
 
 type
-  EX3DFieldAssign = class(Exception);
+  { For PasDoc: below is a trick to convince PasDoc that EX3DError is a class.
+
+    Otherwise, PasDoc doesn't understand it, and places EX3DError in
+    the "Class Hierarchy" (since it's an ancestor of some other classes....)
+    but in the incorrect place (not descending from Exception, despite
+    external_class_hierarchy.txt.)
+    That's because original EX3DError is in unparsed by PasDoc (internal)
+    CastleInternalX3DLexer unit. }
+  { Any error related to VRML/X3D. }
+  {$ifdef PASDOC}
+  EX3DError = class(Exception);
+  {$else}
+  EX3DError = CastleInternalX3DLexer.EX3DError;
+  {$endif}
+
+  EX3DFieldAssign = class(EX3DError);
   EX3DFieldAssignInvalidClass = class(EX3DFieldAssign);
   { Raised by various X3D methods searching for X3D items (nodes, fields,
     events and such) when given item cannot be found. }
-  EX3DNotFound = class(Exception);
+  EX3DNotFound = class(EX3DError);
 
   TX3DEvent = class;
 
@@ -142,7 +157,7 @@ type
     chCoordinate,
 
     { Something visible in VRML 1.0 state node (that may be present
-      in TX3DGraphTraverseState.LastNodes) changed, but not geometry.
+      in TX3DGraphTraverseState.VRML1State) changed, but not geometry.
       Excluding Coordinate node change (this one should go through chCoordinate
       only).
 
@@ -955,7 +970,7 @@ type
     property ChangesAlways: TX3DChanges read FChangesAlways write FChangesAlways;
 
     { What happens when the value of this field changes.
-      This is called, exactly once, by TCastleSceneCore.ChangedField
+      This is called, exactly once, by TCastleSceneCore.InternalChangedField
       to determine what must be done when we know that value of this field changed.
 
       In overridden descendants, this can also do something immediately.
@@ -1010,7 +1025,7 @@ type
       one "in" handler sets the field value).
 
       Note that "out" event handlers are executed before Scene is notified
-      about the field value change (before TCastleSceneCore.ChangedField is called).
+      about the field value change (before TCastleSceneCore.InternalChangedField is called).
       This is also usually exactly what you want --- you can change the scene
       graph inside the event handler (for example, load something on
       Inline.load or Inline.url changes), and let the TX3DField.ChangesAlways
@@ -1044,7 +1059,7 @@ type
 
   TX3DSingleFieldList = specialize TFPGObjectList<TX3DSingleField>;
 
-  EX3DMultFieldDifferentCount = class(Exception);
+  EX3DMultFieldDifferentCount = class(EX3DError);
 
   TX3DMultField = class(TX3DField)
   protected
@@ -1430,7 +1445,7 @@ type
         (I mean, we do Value := AValue, NOT Value := ImageCopy(AValue),
         so don't Free image given to us (at least, don't do this without clearing
         our Value field)).
-        You can pass AValue = nil, then Value will be inited to null image
+        You can pass AValue = nil, then Value will be initialized to null image
         TRGBImage.Create.) }
     constructor Create(AParentNode: TX3DFileItem;
       const AName: string; const AValue: TCastleImage);
@@ -3128,11 +3143,11 @@ begin
   Assert(Event = FExposedEvents[true]);
   Assert(Value is ExposedEventsFieldClass);
 
-  { When not ValuePossiblyChanged, we don't have to call ChangedField.
+  { When not ValuePossiblyChanged, we don't have to call InternalChangedField.
     (Although we still have to call FExposedEvents[false].Send,
     to push the change through the routes.)
     This may be an important optimization when simple field's change
-    causes large time-consuming work in ChangedField, e.g. consider
+    causes large time-consuming work in InternalChangedField, e.g. consider
     Switch.whichChoice which means currently rebuilding a lot of things. }
   ValuePossiblyChanged := not FastEqualsValue(Value);
 
@@ -3158,7 +3173,7 @@ begin
   begin
     Parent := ParentNode as TX3DNode;
     if Parent.Scene <> nil then
-      Parent.Scene.ChangedField(Self);
+      Parent.Scene.InternalChangedField(Self);
   end;
 end;
 
@@ -5012,7 +5027,7 @@ begin
     Value := AttributeValue;
 end;
 
-procedure TSFString.Send(const AValue: AnsiString);
+procedure TSFString.Send(const AValue: string);
 var
   FieldValue: TX3DField;
 begin

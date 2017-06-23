@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -137,9 +137,7 @@
     opRendering,
     opDynamicCollisions,
     opVisibleTriangles,
-    opCollidableTriangles);
-
-  TKambiOctreePropertiesNode = class;
+    opStaticCollisions);
 
   { Navigation information with some Castle Game Engine extensions.
     See http://castle-engine.sourceforge.net/x3d_implementation_navigation_extensions.php . }
@@ -161,8 +159,8 @@
     private FFdOctreeVisibleTriangles: TSFNode;
     public property FdOctreeVisibleTriangles: TSFNode read FFdOctreeVisibleTriangles;
 
-    private FFdOctreeCollidableTriangles: TSFNode;
-    public property FdOctreeCollidableTriangles: TSFNode read FFdOctreeCollidableTriangles;
+    private FFdOctreeStaticCollisions: TSFNode;
+    public property FdOctreeStaticCollisions: TSFNode read FFdOctreeStaticCollisions;
 
     private FFdHeadBobbing: TSFFloat;
     public property FdHeadBobbing: TSFFloat read FFdHeadBobbing;
@@ -204,8 +202,6 @@
   TGeneratedShadowMapNode = class(TAbstractTextureNode)
   strict private
     FGeneratedTextureHandler: TGeneratedTextureHandler;
-    function GetLight: TAbstractLightNode;
-    procedure SetLight(const Value: TAbstractLightNode);
   public
     const
       DefaultSize = 128;
@@ -238,8 +234,6 @@
 
     private FFdCompareMode: TSFstring;
     public property FdCompareMode: TSFString read FFdCompareMode;
-
-    property Light: TAbstractLightNode read GetLight write SetLight;
 
     {$I auto_generated_node_helpers/x3dnodes_generatedshadowmap.inc}
   end;
@@ -437,8 +431,7 @@ end;
 class function TKambiHeadLightNode.URNMatching(const URN: string): boolean;
 begin
   Result := (inherited URNMatching(URN)) or
-    (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 class function TText3DNode.ClassX3DType: string;
@@ -450,8 +443,7 @@ class function TText3DNode.URNMatching(const URN: string): boolean;
 begin
   Result :=
     { do not call (inherited URNMatching(URN)), since we don't match Text node rules }
-    (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TText3DNode.CreateNode;
@@ -473,8 +465,7 @@ end;
 class function TBlendModeNode.URNMatching(const URN: string): boolean;
 begin
   Result := (inherited URNMatching(URN)) or
-    (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+    URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TBlendModeNode.CreateNode;
@@ -509,8 +500,7 @@ class function TKambiAppearanceNode.URNMatching(const URN: string): boolean;
 begin
   { Don't call "inherited URNMatching(URN)", since we don't want to
     "intercept" URNs that should indicate standard Appearance node. }
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TKambiAppearanceNode.CreateNode;
@@ -538,8 +528,7 @@ class function TKambiInlineNode.URNMatching(const URN: string): boolean;
 begin
   { Don't call "inherited URNMatching(URN)", since we don't want to
     "intercept" URNs that should indicate standard Inline node. }
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TKambiInlineNode.AfterLoadInlined;
@@ -551,7 +540,7 @@ begin
      (FdreplaceNodes.Count <> ReplaceCount) then
     WritelnWarning('VRML/X3D', 'replaceNames and replaceNodes for KambiInline node should have the same number of items');
 
-  { After successfull loading, there's always exactly one child. }
+  { After successful loading, there's always exactly one child. }
   Assert(VRML1ChildrenCount = 1);
 
   { First, a special case when Children[0] node has the required name.
@@ -604,9 +593,10 @@ begin
   FFdOctreeVisibleTriangles.Exposed := false;
   AddField(FFdOctreeVisibleTriangles);
 
-  FFdOctreeCollidableTriangles := TSFNode.Create(Self, 'octreeCollidableTriangles', [TKambiOctreePropertiesNode]);
-  FFdOctreeCollidableTriangles.Exposed := false;
-  AddField(FFdOctreeCollidableTriangles);
+  FFdOctreeStaticCollisions := TSFNode.Create(Self, 'octreeStaticCollisions', [TKambiOctreePropertiesNode]);
+  FFdOctreeStaticCollisions.Exposed := false;
+  FFdOctreeStaticCollisions.AddAlternativeName('octreeCollidableTriangles', 0);
+  AddField(FFdOctreeStaticCollisions);
 
   FFdHeadBobbing := TSFFloat.Create(Self, 'headBobbing', TWalkCamera.DefaultHeadBobbing, true);
    FdHeadBobbing.ChangesAlways := [chNavigationInfo];
@@ -627,8 +617,7 @@ end;
 
 class function TKambiNavigationInfoNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TKambiNavigationInfoNode.OctreeProperties(
@@ -637,10 +626,10 @@ var
   N: TX3DNode;
 begin
   case OP of
-    opRendering           : N := FdOctreeRendering          .Value;
-    opDynamicCollisions   : N := FdOctreeDynamicCollisions  .Value;
-    opVisibleTriangles    : N := FdOctreeVisibleTriangles   .Value;
-    opCollidableTriangles : N := FdOctreeCollidableTriangles.Value;
+    opRendering        : N := FdOctreeRendering          .Value;
+    opDynamicCollisions: N := FdOctreeDynamicCollisions  .Value;
+    opVisibleTriangles : N := FdOctreeVisibleTriangles   .Value;
+    opStaticCollisions : N := FdOctreeStaticCollisions.Value;
     else raise EInternalError.Create('TKambiOctreePropertiesNode.OctreeProperties');
   end;
   if N is TKambiOctreePropertiesNode then
@@ -668,8 +657,7 @@ end;
 
 class function TKambiOctreePropertiesNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TKambiOctreePropertiesNode.OverrideLimits(var Limits: TOctreeLimits);
@@ -738,21 +726,7 @@ end;
 
 class function TGeneratedShadowMapNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
-end;
-
-function TGeneratedShadowMapNode.GetLight: TAbstractLightNode;
-begin
-  if FdLight.Value is TAbstractLightNode then
-    Result := TAbstractLightNode(FdLight.Value)
-  else
-    Result := nil;
-end;
-
-procedure TGeneratedShadowMapNode.SetLight(const Value: TAbstractLightNode);
-begin
-  FdLight.Send(Value);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TProjectedTextureCoordinateNode.CreateNode;
@@ -779,8 +753,7 @@ end;
 
 class function TProjectedTextureCoordinateNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TScreenEffectNode.CreateNode;
@@ -817,8 +790,7 @@ end;
 
 class function TScreenEffectNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TScreenEffectNode.DirectEnumerateActive(Func: TEnumerateChildrenFunction): Pointer;
@@ -837,8 +809,7 @@ end;
 
 class function TMultiGeneratedTextureCoordinateNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TEffectNode.CreateNode;
@@ -869,8 +840,7 @@ end;
 
 class function TEffectNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure TEffectPartNode.CreateNode;
@@ -897,8 +867,7 @@ end;
 
 class function TEffectPartNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 function TEffectPartNode.Contents: string;
@@ -944,8 +913,7 @@ end;
 
 class function TShaderTextureNode.URNMatching(const URN: string): boolean;
 begin
-  Result := (URN = URNKambiNodes + ClassX3DType) or
-    (URN = URNKambiNodes2 + ClassX3DType);
+  Result := URNMatchingCastle(URN, ClassX3DType);
 end;
 
 procedure RegisterKambiNodes;

@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -176,7 +176,7 @@ type
     procedure SaveToFile(const URL: string);
 
     procedure Resize(const ResizeToX, ResizeToY: Cardinal;
-      const Interpolation: TResizeInterpolation = riNearest);
+      const Interpolation: TResizeInterpolation = riBilinear);
 
     { Release all resources allocated by @link(LoadFromFile).
       @link(Loaded) property changes to @false after calling this.
@@ -379,6 +379,19 @@ procedure FfmpegExecute(const Executable: string;
   const Parameters: array of string);
 
 var
+  { When @true, then we will load animated GIFs using ffmpeg.
+    Otherwise, we load GIF using TCastleImage as a single (not animated) image.
+
+    TODO: When the TFPReaderGif from FPC will support reading all GIF frames,
+    then this variable will be ignored, and we will always read all GIF frames
+    inside @link(TVideo), @link(TGLVideo2D), @link(TGLVideo3D),
+    and ffmpeg will not be necessary to read GIF animations.
+
+    Use @link(TCastleImage) if you want to always load GIF as static image
+    (first frame, if case of animated GIF).
+  }
+  LoadAnimatedGifs: boolean = false;
+
   { Maximum number of video frames to read, for TVideo.LoadFromFile.
 
     This prevents using up all the memory by accidentaly trying to read
@@ -501,7 +514,7 @@ begin
 end;
 
 procedure TVideo.Resize(const ResizeToX, ResizeToY: Cardinal;
-  const Interpolation: TResizeInterpolation = riNearest);
+  const Interpolation: TResizeInterpolation = riBilinear);
 var
   I: Integer;
 begin
@@ -967,6 +980,7 @@ begin
     so there's no guarentee, but potentially it's all possible.)
     See "ffmpeg -formats". }
   Result :=
+    (LoadAnimatedGifs and (MimeType = 'image/gif')) or
     (MimeType = 'video/x-msvideo') or
     (MimeType = 'video/mpeg') or
     (MimeType = 'video/ogg') or

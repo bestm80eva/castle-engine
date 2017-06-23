@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -21,20 +21,18 @@ unit ToolWindowsResources;
 interface
 
 uses CastleUtils, CastleStringUtils,
-  ToolUtils, ToolArchitectures;
+  ToolProject, ToolUtils, ToolArchitectures;
 
-procedure GenerateWindowsResources(const ReplaceMacros: TReplaceMacros;
-  const Path: string; const Icons: TIconFileNames; const CPU: TCpu;
-  const Plugin: boolean);
+procedure GenerateWindowsResources(const Project: TCastleProject; const ExePath: string;
+  const CPU: TCpu; const Plugin: boolean);
 
 implementation
 
 uses SysUtils,
   CastleURIUtils, CastleLog, CastleFilesUtils;
 
-procedure GenerateWindowsResources(const ReplaceMacros: TReplaceMacros;
-  const Path: string; const Icons: TIconFileNames; const CPU: TCpu;
-  const Plugin: boolean);
+procedure GenerateWindowsResources(const Project: TCastleProject; const ExePath: string;
+  const CPU: TCpu; const Plugin: boolean);
 const
   RcTemplate: array [boolean { plugin? }] of string = (
     {$I templates/windows/automatic-windows-resources.rc.inc},
@@ -49,19 +47,28 @@ var
   IcoPath, OutputRc, OutputManifest: string;
   WindresOutput, WindresExe, RcFilename, ManifestFilename, ResName: string;
   WindresStatus: Integer;
+  OutputResourcesPath, FullIcoPath: string;
 begin
-  OutputRc := ReplaceMacros(RcTemplate[Plugin]);
+  OutputResourcesPath := OutputPath(Project.Path) + 'windows' + PathDelim;
+  CheckForceDirectories(OutputResourcesPath);
 
-  IcoPath := Icons.FindExtension(['.ico']);
+  OutputRc := Project.ReplaceMacros(RcTemplate[Plugin]);
+
+  IcoPath := Project.Icons.FindExtension(['.ico']);
+  FullIcoPath := CombinePaths(Project.Path, IcoPath);
+  {$ifdef MSWINDOWS}
+  { use only / on Windows, to avoid "unrecognized escape sequence" messages from windres }
+  FullIcoPath := StringReplace(FullIcoPath, '\', '/', [rfReplaceAll]);
+  {$endif}
   if IcoPath <> '' then
-    OutputRc := 'MainIcon ICON "' + IcoPath + '"' + NL + OutputRc else
+    OutputRc := 'MainIcon ICON "' + FullIcoPath + '"' + NL + OutputRc else
     WritelnWarning('Windows Resources', 'Icon in format suitable for Windows (.ico) not found. Exe file will not have icon.');
 
-  RcFilename := InclPathDelim(Path) + RcName[Plugin];
+  RcFilename := OutputResourcesPath + RcName[Plugin];
   StringToFile(RcFilename, OutputRc);
 
-  ManifestFilename := InclPathDelim(Path) + 'automatic-windows.manifest';
-  OutputManifest := ReplaceMacros(ManifestTemplate);
+  ManifestFilename := OutputResourcesPath + 'automatic-windows.manifest';
+  OutputManifest := Project.ReplaceMacros(ManifestTemplate);
   StringToFile(ManifestFilename, OutputManifest);
 
   WindresExe := FindExe('windres');
@@ -80,20 +87,18 @@ begin
     raise Exception.Create('Cannot find "windres" executable on $PATH. On Windows, it should be installed along with FPC (Free Pascal Compiler), so just make sure FPC is installed and available on $PATH. On Linux, "windres" is usually available as part of MinGW, so install the package named like "mingw*-binutils".');
 
   ResName := ChangeFileExt(RcName[Plugin], '.res');
-  RunCommandIndirPassthrough(Path, WindresExe,
+  RunCommandIndirPassthrough(OutputResourcesPath, WindresExe,
     ['-i', RcName[Plugin], '-o', ResName],
     WindresOutput, WindresStatus);
   if WindresStatus <> 0 then
     raise Exception.Create('windres failed, cannot create Windows resource');
 
+  CheckRenameFile(
+    OutputResourcesPath + ResName,
+    ExePath + ResName);
+
   Writeln('Generated ' + ResName + ', make sure you include it in your .lpr source file like this:');
   Writeln('  {$ifdef MSWINDOWS} {$R ' + ResName + '} {$endif MSWINDOWS}');
-
-  if not LeaveTemp then
-  begin
-    CheckDeleteFile(RcFilename);
-    CheckDeleteFile(ManifestFilename);
-  end;
 end;
 
 end.

@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -56,7 +56,7 @@ function TIndexedTriangleMeshNode_1.TexCoord(State: TX3DGraphTraverseState;
   out ATexCoord: TX3DNode): boolean;
 begin
   Result := true;
-  ATexCoord := State.LastNodes.TextureCoordinate2;
+  ATexCoord := State.VRML1State.TextureCoordinate2;
 end;
 
 procedure TRotationXYZNode.CreateNode;

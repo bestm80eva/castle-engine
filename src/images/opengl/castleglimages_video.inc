@@ -1,5 +1,5 @@
 {
-  Copyright 2001-2016 Michalis Kamburelis.
+  Copyright 2001-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -87,9 +87,9 @@ type
     FItems: array of TGLImageCore;
   public
     constructor Create(Video: TVideo;
-      const SmoothScaling: boolean = false);
+      const SmoothScaling: boolean = true);
     constructor Create(const URL: string;
-      const SmoothScaling: boolean = false);
+      const SmoothScaling: boolean = true);
     constructor Create(const URL: string;
       const ResizeToX: Cardinal = 0;
       const ResizeToY: Cardinal = 0;
@@ -163,7 +163,7 @@ end;
 { TGLVideo2D ----------------------------------------------------------------- }
 
 constructor TGLVideo2D.Create(Video: TVideo;
-  const SmoothScaling: boolean = false);
+  const SmoothScaling: boolean = true);
 var
   I: Integer;
 begin
@@ -175,7 +175,7 @@ begin
 end;
 
 constructor TGLVideo2D.Create(const URL: string;
-  const SmoothScaling: boolean = false);
+  const SmoothScaling: boolean = true);
 var
   Video: TVideo;
 begin

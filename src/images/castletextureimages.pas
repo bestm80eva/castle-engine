@@ -1,5 +1,5 @@
 {
-  Copyright 2009-2016 Michalis Kamburelis.
+  Copyright 2009-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -147,6 +147,42 @@ type
 
     function Empty: boolean; override;
   end;
+
+  { Texture minification filter (what happens when many texture pixels
+    are squeezed in one screen pixel). }
+  TAutoMinificationFilter = (
+    minNearest,
+    minLinear,
+    minNearestMipmapNearest,
+    minNearestMipmapLinear,
+    minLinearMipmapNearest,
+    minLinearMipmapLinear,
+
+    { Interpretation of this filter depends on current
+      @link(TRenderingAttributes.MagnificationFilter Scene.Attributes.MagnificationFilter). }
+    minDefault,
+    { Alias for minNearest. }
+    minFastest,
+    { Alias for minLinearMipmapLinear. }
+    minNicest
+  );
+  TMinificationFilter = minNearest..minLinearMipmapLinear;
+
+  { Texture magnification filter (what happens when a single texture pixel
+    in stretched over many screen pixels). }
+  TAutoMagnificationFilter = (
+    magNearest,
+    magLinear,
+
+    { Interpretation of this filter depends on current
+      @link(TRenderingAttributes.MagnificationFilter Scene.Attributes.MagnificationFilter). }
+    magDefault,
+    { Alias for magnNearest. }
+    magFastest,
+    { Alias for magLinear. }
+    magNicest
+  );
+  TMagnificationFilter = magNearest..magLinear;
 
 var
   { Log texture cache events. Allows to see how the cache performs,

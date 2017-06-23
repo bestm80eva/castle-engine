@@ -1,5 +1,5 @@
 {
-  Copyright 2001-2016 Michalis Kamburelis.
+  Copyright 2001-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -72,10 +72,11 @@ unit CastleImages;
 interface
 
 uses SysUtils, Classes, Math, CastleUtils, CastleVectors, CastleRectangles,
-  CastlePng, CastleFileFilters, CastleClassUtils, CastleColors,
+  CastleFileFilters, CastleClassUtils, CastleColors,
   FGL, FPImage, FPReadPCX, FPReadGIF, FPReadPSD, FPReadTGA, FPReadTiff, FPReadXPM,
   FPReadJPEG, FPWriteJPEG, FPReadPNM
-  {$ifdef CASTLE_PNG_USING_FCL_IMAGE} , FPReadPNG, CastleFPWritePNG {$endif};
+  {$ifdef CASTLE_PNG_USING_FCL_IMAGE} , FPReadPNG, CastleInternalFPWritePNG
+  {$else} , CastleInternalPng {$endif};
 
 type
   TAutoAlphaChannel = (acAuto, acNone, acTest, acBlending);
@@ -150,6 +151,8 @@ type
 
     { Size of image contents in bytes. }
     function Size: Cardinal; virtual; abstract;
+
+    function Dimensions: TVector3Cardinal;
 
     { Is an image empty.
 
@@ -508,7 +511,7 @@ type
       If ProgressTitle <> '' this will call Progress.Init/Step/Fini
       from CastleProgress to indicate progress of operation. }
     procedure Resize(ResizeWidth, ResizeHeight: Cardinal;
-      const Interpolation: TResizeInterpolation = riNearest;
+      const Interpolation: TResizeInterpolation = riBilinear;
       const ProgressTitle: string = '');
 
     { Change Width and Height and appropriately stretch image contents.
@@ -546,7 +549,7 @@ type
       if ProgressTitle <> '' this will call Progress.Init/Step/Fini
       from CastleProgress to indicate progress of operation. }
     function MakeResized(ResizeWidth, ResizeHeight: Cardinal;
-      const Interpolation: TResizeInterpolation = riNearest;
+      const Interpolation: TResizeInterpolation = riBilinear;
       const ProgressTitle: string = ''): TCastleImage;
 
     { Mirror image horizotally (that is right edge is swapped with left edge). }
@@ -818,8 +821,8 @@ type
       since it's really really slow).
 
       @groupBegin }
-    procedure AlphaBleed(const ProgressTitle: string); virtual;
-    function MakeAlphaBleed(const ProgressTitle: string): TCastleImage; virtual;
+    procedure AlphaBleed(const ProgressTitle: string = ''); virtual;
+    function MakeAlphaBleed(const ProgressTitle: string = ''): TCastleImage; virtual;
     { @groupEnd }
   end;
 
@@ -1206,8 +1209,8 @@ type
     procedure PremultiplyAlpha;
     property PremultipliedAlpha: boolean read FPremultipliedAlpha;
 
-    procedure AlphaBleed(const ProgressTitle: string); override;
-    function MakeAlphaBleed(const ProgressTitle: string): TCastleImage; override;
+    procedure AlphaBleed(const ProgressTitle: string = ''); override;
+    function MakeAlphaBleed(const ProgressTitle: string = ''): TCastleImage; override;
   end;
 
   { Image with high-precision RGB colors encoded as 3 floats. }
@@ -1379,8 +1382,8 @@ type
     procedure Assign(const Source: TCastleImage); override;
 
     // TODO: this should be implemented, just like for TRGBAlphaImage
-    //procedure AlphaBleed(const ProgressTitle: string); override;
-    //function MakeAlphaBleed(const ProgressTitle: string): TCastleImage; override;
+    //procedure AlphaBleed(const ProgressTitle: string = ''); override;
+    //function MakeAlphaBleed(const ProgressTitle: string = ''): TCastleImage; override;
   end;
 
 { RGBE <-> 3 Single color conversion --------------------------------- }
@@ -1520,7 +1523,7 @@ function LoadImage(const URL: string;
 function LoadImage(const URL: string;
   const AllowedImageClasses: array of TEncodedImageClass;
   const ResizeWidth, ResizeHeight: Cardinal;
-  const Interpolation: TResizeInterpolation = riNearest): TCastleImage; overload;
+  const Interpolation: TResizeInterpolation = riBilinear): TCastleImage; overload;
 { @groupEnd }
 
 { Load image to TEncodedImage format.
@@ -1759,6 +1762,13 @@ destructor TEncodedImage.Destroy;
 begin
   FreeMemNiling(FRawPixels);
   inherited;
+end;
+
+function TEncodedImage.Dimensions: TVector3Cardinal;
+begin
+  Result[0] := Width;
+  Result[1] := Height;
+  Result[2] := Depth;
 end;
 
 function TEncodedImage.IsEmpty: boolean;

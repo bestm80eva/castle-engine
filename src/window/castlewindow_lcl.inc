@@ -1,5 +1,5 @@
 {
-  Copyright 2013-2016 Michalis Kamburelis.
+  Copyright 2013-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -33,7 +33,7 @@
 *)
 
 {$ifdef read_interface_uses}
-Interfaces, Forms, Dialogs, OpenGLContext, Menus,
+Interfaces, Forms, Dialogs, OpenGLContext, Menus, LazUTF8,
 Controls, FileUtil, Graphics, LCLType, CastleLCLUtils, Clipbrd, CustomTimer, LCLVersion,
 {$endif}
 

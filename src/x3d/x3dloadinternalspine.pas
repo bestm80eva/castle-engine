@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -117,7 +117,7 @@ begin
       P :=
         {$ifdef VER2} TJSONParser.Create(S);
         {$else}
-          {$ifdef VER3_0} TJSONParser.Create(S);
+          {$ifdef VER3_0_0} TJSONParser.Create(S);
           {$else} { For FPC > 3.0.0 } TJSONParser.Create(S, [joUTF8, joComments]);
           {$endif}
         {$endif}

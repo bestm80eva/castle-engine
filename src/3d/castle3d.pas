@@ -1,5 +1,5 @@
 {
-  Copyright 2010-2016 Michalis Kamburelis.
+  Copyright 2010-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -76,19 +76,33 @@ type
     { Position, in local coordinate system of this 3D object,
       of the picked 3D point.
 
-      If the ray hit empty space, this is undefined.
-      Note that only MainScene is informed about pointing device events
-      when the ray hit empty space. }
+      If the ray hit empty space (@link(Item) field is @nil),
+      then this is undefined.
+      Note that only @link(TCastleSceneManager.MainScene) is informed about pointing
+      device events when the ray hit empty space, so this is an unusual case.
+    }
     Point: TVector3Single;
 
     { Triangle that was hit. This triangle is always a part of @link(Item).
 
-      If the ray hit empty space, this is @nil.
-      Note that only TCastleSceneManager.MainScene is informed about pointing
+      If the ray hit empty space (@link(Item) field is @nil),
+      then this is @nil.
+      Note that only @link(TCastleSceneManager.MainScene) is informed about pointing
       device events when the ray hit empty space, so this is an unusual case.
 
       May also be @nil if RayCollision implementation for the 3D object
-      simply left it @nil. Right now, only TCastleScene sets this field. }
+      simply left it @nil. For example,
+
+      @unorderedList(
+        @item(If the collision occured with a TCastleSceneCore with
+          @link(TCastleSceneCore.Spatial) that includes a collidable
+          structure (ssDynamicCollisions or ssStaticCollisions),
+          then this triangle is set.)
+
+        @item(If the collision occured merely with a T3D bounding box,
+          the triangle is left as @nil.)
+      )
+    }
     Triangle: P3DTriangle;
 
     { Ray used to cause the collision,
@@ -285,7 +299,8 @@ type
     FCursor: TMouseCursor;
     FCollidesWithMoving: boolean;
     Disabled: Cardinal;
-    FExcludeFromGlobalLights: boolean;
+    FExcludeFromGlobalLights, FExcludeFromStatistics,
+      FInternalExcludeFromParentBoundingVolume: boolean;
     FWorld: T3DWorld;
     procedure SetCursor(const Value: TMouseCursor);
   protected
@@ -593,6 +608,11 @@ type
     { Prepare resources, making various methods (like rendering and such)
       to execute fast.
 
+      It is usually simpler to call @link(TCastleSceneManager.PrepareResources)
+      then this method. Calling @code(SceneManager.PrepareResources(MyScene))
+      will automatically call @code(MyScene.PrepareResources(...)) underneath,
+      with proper parameters.
+
       This requires OpenGL to be initailized for most 3D objects.
       If not, some parts of preparations will be aborted.
 
@@ -627,10 +647,22 @@ type
         Reason: octree preparations have a separate mechanism
         that may want to show progress.)
 
-      @param(BaseLights Used if Options contains prRender.
-        A list of base lights (always TLightInstancesList, although
-        cannot be declated as such) used for rendering.
-        May be @nil (equivalent to empty).) }
+      @param(BaseLights
+        Lights added to the scene when rendering it.
+        They may include a headlight, or global lights that shine on all
+        3D scenes (see @link(TCastleAbstractViewport.UseGlobalLights)).
+        These do not include the lights defined @italic(within) this scene.
+        It is a list of base lights (always TLightInstancesList, although
+        it cannot be declated as such here).
+
+        It is used only if Options contains prRender.
+
+        It is not necessary to define this parameter (you can pass @nil).
+        And all the lighting is dynamic, so of course you can always
+        turn on / off things like a headlight during the game.
+        However, passing here the appropriate lights will mean that the shaders
+        are immediately prepared for the current lighting.
+      ) }
     procedure PrepareResources(
       Options: TPrepareResourcesOptions;
       ProgressStep: boolean;
@@ -788,17 +820,6 @@ type
       use it). }
     function Dragging: boolean; virtual;
 
-    { Unconditionally move this 3D object by given vector.
-      You usually don't want to use this directly, instead use @link(Move)
-      method to move checking collisions (and with optional wall sliding).
-
-      By default, in T3D class, this does nothing, because the bare T3D
-      class doesn't know how to move itself.
-      But descendants like T3DTransform and T3DOrient (and their
-      descendants like TPlayer, TCreature, TItemOnWorld) override this
-      and can be moved using this. }
-    procedure Translate(const T: TVector3Single); virtual;
-
     { Middle point, usually "eye point", of the 3D model.
       This is used for sphere center (if overriden Sphere returns @true)
       and is the central point from which collisions of this object
@@ -939,9 +960,9 @@ type
       Like elevators (vertical, or horizontal moving platforms).
       We may use sphere (see @link(T3D.Sphere)) for checking
       collisions, or bounding box (@link(T3D.BoundingBox)), depending on need.
-      The item is moved using @link(T3D.Translate), so make sure it
+      The item is moved using @link(T3DCustomTransform.Translate), so make sure it
       actually does something (for example, by descending from T3DTransform,
-      that provides natural @link(T3D.Translate) implementation). }
+      that provides natural @link(T3DCustomTransform.Translate) implementation). }
     property CollidesWithMoving: boolean read FCollidesWithMoving write FCollidesWithMoving default false;
 
     { Get height of my point above the rest of the 3D world.
@@ -962,9 +983,8 @@ type
       Overloaded version without ProposedNewPos doesn't do wall-sliding,
       and only answers if exactly this move is allowed.
 
-      If this 3D object allows to use sphere as the bounding volume (see @link(Sphere)),
-      then this sphere must be centered around OldPos, not some other point.
-      That is, we assume that @link(Sphere) returns Center that is equal to OldPos.
+      If this 3D object allows to use sphere as the bounding volume,
+      if will be used (see @link(Sphere)).
 
       This ignores the geometry of this 3D object (to not accidentaly collide
       with your own geometry), and checks collisions with the rest of the world.
@@ -975,16 +995,6 @@ type
     function MoveAllowed(const OldPos, NewPos: TVector3Single;
       const BecauseOfGravity: boolean): boolean;
     { @groupEnd }
-
-    { Move, if possible (no collisions). This is the simplest way to move
-      a 3D object, and a basic building block for artificial intelligence
-      of creatures.
-
-      Checks move possibility by MoveAllowed, using @link(Middle) point.
-      Actual move is done using @link(Translate). }
-    function Move(const Translation: TVector3Single;
-      const BecauseOfGravity: boolean;
-      const EnableWallSliding: boolean = true): boolean;
 
     { Cast a ray from myself to the world, see what is hit.
 
@@ -998,10 +1008,25 @@ type
       In case of scenes that are children of TCastlePrecalculatedAnimation,
       their Shared methods all point to the 1st animation scene. }
     function Shared: T3D; virtual;
+
+    { Is this object's bounding volume (@link(BoundingBox))
+      included in parent bounding volume.
+      This should be always @true for non-debug scenes.
+      Violating this may cause rendering artifacts, things could
+      disappear when they should not.
+      Using this is reasonable only if you attach a debug geometry
+      to your scene, and you don't want to enlarge your bounding volume
+      (e.g. because this debug geometry visualizes something determined
+      by the bounding volume, and it would create a "feedback loop"
+      if the visualization itself would enlarge the bounding box). }
+    property InternalExcludeFromParentBoundingVolume: boolean
+      read FInternalExcludeFromParentBoundingVolume
+      write FInternalExcludeFromParentBoundingVolume;
   published
     { If this 3D object is rendered as part of TCastleSceneManager,
-      and TCastleSceneManager.UseGlobalLights is @true, then this property allows
-      to make an exception for this 3D object: even though TCastleSceneManager.UseGlobalLights is @true,
+      and @link(TCastleAbstractViewport.UseGlobalLights) is @true, then this property allows
+      to make an exception for this 3D object: even though
+      @link(TCastleAbstractViewport.UseGlobalLights) is @true,
       do not use global lights @italic(for this 3D object).
 
       Note that this is not applied recursively. Instead, it is checked at each T3D instance
@@ -1009,6 +1034,11 @@ type
       unless you do custom rendering on your own. }
     property ExcludeFromGlobalLights: boolean
       read FExcludeFromGlobalLights write FExcludeFromGlobalLights default false;
+
+    { Exclude from rendering statistics in
+      @link(TCastleAbstractViewport.Statistics). }
+    property ExcludeFromStatistics: boolean
+      read FExcludeFromStatistics write FExcludeFromStatistics default false;
   end;
 
   { List of 3D objects (T3D instances).
@@ -1276,19 +1306,12 @@ type
       and the TransformMatricesMult will automatically work correctly already.
 
       More complicated descendants may override TransformMatricesMult,
-      and then GetCenter, GetRotation etc. methods can be ignored
-      (if your TransformMatricesMult will not use it, then GetCenter, GetRotation
-      will not be used at all and there's no point in overriding them).
-      You still need to override
-
-      @unorderedList(
-        @item OnlyTranslation
-        @item(GetTranslation (it's used by default Middle implementation,
-          and it's also used in case OnlyTranslation returns @true),)
-        @item(And make sure AverageScale is correct
-          (if you want it to be <> 1, that is: if your transformation
-          may make some scale, then you need to override GetScale).)
-      )
+      thus directly affecting the transformation.
+      They should @italic(still) also override other methods to make sure
+      that they return correct results (OnlyTranslation, GetTranslation,
+      GetRotation, GetScale and friends...).
+      They are seldom used (outside of the default TransformMatricesMult
+      implementation), but are used.
 
       @groupBegin }
     function GetTranslation: TVector3Single; virtual;
@@ -1309,7 +1332,7 @@ type
 
     { Transformation matrix.
       You can override this to derive transformation using anything,
-      not necessarily GetTranslation / GetCenter etc. methods.
+      not necessarily from GetTranslation / GetCenter etc. methods.
 
       This method must produce matrices that preserve points as points
       and directions as directions in homegeneous space.
@@ -1465,6 +1488,29 @@ type
       approach, and then ignore MiddleHeight completely. }
     property MiddleHeight: Single read FMiddleHeight write FMiddleHeight
       default DefaultMiddleHeight;
+
+    { Translation (move) the children. Zero by default.
+      @seealso T3DTransform.Translation }
+    property Translation: TVector3Single read GetTranslation;
+
+    { Rotation in 3D, around a specified axis.
+      @seealso T3DTransform.Rotation }
+    property Rotation: TVector4Single read GetRotation;
+
+    { Unconditionally move this 3D object by given vector.
+      You usually don't want to use this directly, instead use @link(Move)
+      method to move checking collisions (and with optional wall sliding). }
+    procedure Translate(const T: TVector3Single); virtual; abstract;
+
+    { Move, if possible (no collisions). This is the simplest way to move
+      a 3D object, and a basic building block for artificial intelligence
+      of creatures.
+
+      Checks move possibility by MoveAllowed, using @link(Middle) point.
+      Actual move is done using @link(Translate). }
+    function Move(const ATranslation: TVector3Single;
+      const BecauseOfGravity: boolean;
+      const EnableWallSliding: boolean = true): boolean;
   end;
 
   { Transform (move, rotate, scale) children T3D objects.
@@ -1621,9 +1667,8 @@ type
   protected
     procedure TransformMatricesMult(var M, MInverse: TMatrix4Single); override;
     function OnlyTranslation: boolean; override;
-    { T3DOrient overrides GetTranslation to return Position, this will be used
-      by T3DCustomTransform.Middle. }
     function GetTranslation: TVector3Single; override;
+    function GetRotation: TVector4Single; override;
   public
     { Default value of T3DOrient.Orientation, for new instances of T3DOrient
       (creatures, items, player etc.). }
@@ -1654,6 +1699,9 @@ type
     property Direction: TVector3Single read GetDirection write SetDirection;
     property Up: TVector3Single read GetUp write SetUp;
     { @groupEnd }
+
+    { Get at once vectors: position, direction, up. }
+    procedure GetView(out APos, ADir, AUp: TVector3Single);
 
     { Set at once vectors: position, direction, up.
 
@@ -1774,6 +1822,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     procedure Update(const SecondsPassed: Single; var RemoveMe: TRemoveType); override;
+    procedure Translate(const T: TVector3Single); override;
   published
     { Are other 3D objects pushed when this object moves.
       Only the 3D objects with @link(T3D.CollidesWithMoving) are ever pushed by this object
@@ -2389,7 +2438,7 @@ end;
 function T3D.PointCollision2D(const Point: TVector2Single;
   const TrianglesToIgnoreFunc: T3DTriangleIgnoreFunc): boolean;
 begin
-  Result := GetCollides and BoundingBox.PointInside2D(Point);
+  Result := GetCollides and BoundingBox.Contains2D(Point);
 end;
 
 function T3D.BoxCollision(const Box: TBox3D;
@@ -2448,10 +2497,6 @@ end;
 function T3D.GetPickable: boolean;
 begin
   Result := FPickable and GetExists;
-end;
-
-procedure T3D.Translate(const T: TVector3Single);
-begin
 end;
 
 function T3D.Middle: TVector3Single;
@@ -2588,27 +2633,6 @@ begin
   try
     Result := World.WorldRay(RayOrigin, RayDirection);
   finally Enable end;
-end;
-
-function T3D.Move(const Translation: TVector3Single;
-  const BecauseOfGravity, EnableWallSliding: boolean): boolean;
-var
-  OldMiddle, ProposedNewMiddle, NewMiddle: TVector3Single;
-begin
-  OldMiddle := Middle;
-
-  if EnableWallSliding then
-  begin
-    ProposedNewMiddle := OldMiddle + Translation;
-    Result := MoveAllowed(OldMiddle, ProposedNewMiddle, NewMiddle, BecauseOfGravity);
-  end else
-  begin
-    NewMiddle := OldMiddle + Translation;
-    Result := MoveAllowed(OldMiddle, NewMiddle, BecauseOfGravity);
-  end;
-
-  if Result then
-    Translate(NewMiddle - OldMiddle);
 end;
 
 function T3D.Shared: T3D;
@@ -2803,10 +2827,12 @@ begin
   Result := EmptyBox3D;
   if GetExists then
   begin
-    if GetChild <> nil then
+    if (GetChild <> nil) and
+       (not GetChild.InternalExcludeFromParentBoundingVolume) then
       Result.Add(GetChild.BoundingBox);
     for I := 0 to List.Count - 1 do
-      Result.Add(List[I].BoundingBox);
+      if not List[I].InternalExcludeFromParentBoundingVolume then
+        Result.Add(List[I].BoundingBox);
   end;
 end;
 
@@ -4054,6 +4080,27 @@ begin
   Result := inherited BoundingBox;
 end;
 
+function T3DCustomTransform.Move(const ATranslation: TVector3Single;
+  const BecauseOfGravity, EnableWallSliding: boolean): boolean;
+var
+  OldMiddle, ProposedNewMiddle, NewMiddle: TVector3Single;
+begin
+  OldMiddle := Middle;
+
+  if EnableWallSliding then
+  begin
+    ProposedNewMiddle := OldMiddle + ATranslation;
+    Result := MoveAllowed(OldMiddle, ProposedNewMiddle, NewMiddle, BecauseOfGravity);
+  end else
+  begin
+    NewMiddle := OldMiddle + ATranslation;
+    Result := MoveAllowed(OldMiddle, NewMiddle, BecauseOfGravity);
+  end;
+
+  if Result then
+    Translate(NewMiddle - OldMiddle);
+end;
+
 { T3DTransform -------------------------------------------------------------- }
 
 constructor T3DTransform.Create(AOwner: TComponent);
@@ -4247,6 +4294,11 @@ begin
   VisibleChangeHere([vcVisibleGeometry]);
 end;
 
+procedure T3DOrient.GetView(out APos, ADir, AUp: TVector3Single);
+begin
+  Camera.GetView(APos, ADir, AUp);
+end;
+
 procedure T3DOrient.SetView(const APos, ADir, AUp: TVector3Single;
   const AdjustUp: boolean);
 begin
@@ -4270,6 +4322,15 @@ end;
 function T3DOrient.GetTranslation: TVector3Single;
 begin
   Result := Camera.Position;
+end;
+
+function T3DOrient.GetRotation: TVector4Single;
+var
+  APos, ADir, AUp: TVector3Single;
+begin
+  Camera.GetView(APos, ADir, AUp);
+  { TODO: Is this correct also for TOrientationType <> otUpYDirectionMinusZ? }
+  Result := CamDirUp2Orient(ADir, AUp);
 end;
 
 { T3DMoving --------------------------------------------------------- }
@@ -4354,7 +4415,7 @@ procedure T3DMoving.BeforeTimeIncrease(
 var
   CurrentBox, NewBox, Box: TBox3D;
   I: Integer;
-  Translation: TVector3Single;
+  MoveTranslation: TVector3Single;
   CurrentTranslation, NewTranslation: TVector3Single;
   SphereRadius: Single;
   Item: T3D;
@@ -4365,14 +4426,14 @@ begin
     NewTranslation := GetTranslationFromTime(NewAnimationTime);
 
     { It often happens that T3DMoving doesn't move at all,
-      and then Translation doesn't change at all
+      and then MoveTranslation doesn't change at all
       (even when compared precisely, without usual epsilon used to compare
       floats). So the check below may be worth the time, we expect
       it will avoid doing actual work. }
 
     if not VectorsPerfectlyEqual(CurrentTranslation, NewTranslation) then
     begin
-      Translation := NewTranslation - CurrentTranslation;
+      MoveTranslation := NewTranslation - CurrentTranslation;
 
       { TODO: it may be sensible to add a pushing method when we compare
         other object's bounding box (never a sphere, and be sure to use
@@ -4391,7 +4452,7 @@ begin
         for I := 0 to World.Count - 1 do
         begin
           Item := World[I];
-          if Item.CollidesWithMoving then
+          if (Item is T3DCustomTransform) and Item.CollidesWithMoving then
           begin
             { This case doesn't really use Item.Sphere. But it's not really
               terribly important design decision, we may use Item.Sphere
@@ -4400,7 +4461,7 @@ begin
             Box := Item.BoundingBox;
             if Box.Collision(NewBox) or
                Box.Collision(CurrentBox) then
-              Item.Translate(Translation);
+              T3DCustomTransform(Item).Translate(MoveTranslation);
           end;
         end;
       end else
@@ -4408,19 +4469,19 @@ begin
         for I := 0 to World.Count - 1 do
         begin
           Item := World[I];
-          if Item.CollidesWithMoving then
+          if (Item is T3DCustomTransform) and Item.CollidesWithMoving then
             if Item.Sphere(SphereRadius) then
             begin
               if SphereCollisionAssumeTranslation(NewTranslation,
                 Item.Middle, SphereRadius,
                 @World.CollisionIgnoreItem) then
-                Item.Translate(Translation);
+                T3DCustomTransform(Item).Translate(MoveTranslation);
             end else
             begin
               if BoxCollisionAssumeTranslation(NewTranslation,
                 Item.BoundingBox,
                 @World.CollisionIgnoreItem) then
-                Item.Translate(Translation);
+                T3DCustomTransform(Item).Translate(MoveTranslation);
             end;
         end;
       end;
@@ -4437,6 +4498,12 @@ begin
   NewAnimationTime := AnimationTime + SecondsPassed;
   BeforeTimeIncrease(NewAnimationTime);
   FAnimationTime := NewAnimationTime;
+end;
+
+procedure T3DMoving.Translate(const T: TVector3Single);
+begin
+  { ignore Translate calls, our translation is determined by current time
+    and other properties. }
 end;
 
 { T3DLinearMoving --------------------------------------------------- }

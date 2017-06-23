@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -28,7 +28,7 @@ program test_font_break;
 uses CastleWindow, CastleGLUtils, SysUtils, Classes, CastleParameters,
   CastleUtils, CastleFonts, CastleVectors, CastleStringUtils, CastleColors,
   CastleControls, CastleKeysMouse, CastleRectangles, CastleControlsImages,
-  CastleLog, CastleFreeType, CastleApplicationProperties;
+  CastleLog, CastleApplicationProperties;
 
 var
   Window: TCastleWindowCustom;

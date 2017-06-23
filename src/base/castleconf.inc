@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -74,10 +74,11 @@
   {$define SUPPORTS_INLINE}
 {$endif}
 
-{$ifdef VER2_0} {$fatal FPC 2.0.x is not supported anymore, see http://castle-engine.sourceforge.net/engine.php#section_fpc_ver} {$endif}
-{$ifdef VER2_2} {$fatal FPC 2.2.x is not supported anymore, see http://castle-engine.sourceforge.net/engine.php#section_fpc_ver} {$endif}
-{$ifdef VER2_4} {$fatal FPC 2.4.x is not supported anymore, see http://castle-engine.sourceforge.net/engine.php#section_fpc_ver} {$endif}
-{$ifdef VER2_6_0} {$fatal FPC 2.6.0 is not supported anymore, see http://castle-engine.sourceforge.net/engine.php#section_fpc_ver} {$endif}
+{$ifdef VER2_0} {$fatal FPC 2.0.x is not supported anymore, see https://castle-engine.sourceforge.io/fpc_and_lazarus.php} {$endif}
+{$ifdef VER2_2} {$fatal FPC 2.2.x is not supported anymore, see https://castle-engine.sourceforge.io/fpc_and_lazarus.php} {$endif}
+{$ifdef VER2_4} {$fatal FPC 2.4.x is not supported anymore, see https://castle-engine.sourceforge.io/fpc_and_lazarus.php} {$endif}
+{$ifdef VER2_6_0} {$fatal FPC 2.6.0 is not supported anymore, see https://castle-engine.sourceforge.io/fpc_and_lazarus.php} {$endif}
+{$ifdef VER2_6_2} {$fatal FPC 2.6.2 is not supported anymore, see https://castle-engine.sourceforge.io/fpc_and_lazarus.php} {$endif}
 
 { These should be set on the command-line always.
   NOT setting them here forces the user to use correct compilation method
@@ -174,15 +175,15 @@
     This is used when neither CASTLE_PNG_USING_FCL_IMAGE
     nor CASTLE_PNG_STATIC are defined.
 
-  - If CASTLE_PNG_STATIC is defined, we use a different version of CastlePng
-    unit that allows static linking to png, see castlepng_static.inc.
+  - If CASTLE_PNG_STATIC is defined, we use a different version of CastleInternalPng
+    unit that allows static linking to png, see castleinternalpng_static.inc.
 }
 
 {$define CASTLE_PNG_USING_FCL_IMAGE}
 // {$ifdef iOS} {$define CASTLE_PNG_USING_FCL_IMAGE} {$endif}
 // {$ifdef ANDROID} {$define CASTLE_PNG_USING_FCL_IMAGE} {$endif}
 
-{ Below is relevant only if we use dynamic PNG library (castlepng_dynamic.inc).
+{ Below is relevant only if we use dynamic PNG library (castleinternalpng_dynamic.inc).
   Determines calling convention of libpng functions and callbacks:
   LIBPNG_STDCALL or LIBPNG_CDECL. The standard is to just define LIBPNG_CDECL,
   also for Windows: normal Windows dlls of libpng use cdecl, just like Unix. }
@@ -199,12 +200,6 @@
 {$define HAS_FP_HTTP_CLIENT}
 {$ifdef ANDROID} {$undef HAS_FP_HTTP_CLIENT} {$endif}
 
-{ FreeType ------------------------------------------------------------------- }
-
-{$define HAS_FREE_TYPE}
-{$ifdef ANDROID} {$undef HAS_FREE_TYPE} {$endif}
-{$ifdef iOS} {$undef HAS_FREE_TYPE} {$endif}
-
 { Embedded stuff ------------------------------------------------------------- }
 
 { If defined, the compiled code will have embedded all the variations
@@ -217,5 +212,15 @@
   Undefine this to conserve around 0.7 MB in exe size.
   All the Text X3D nodes will use standard sans non-bold, non-italic font. }
 {$define CASTLE_EMBED_ALL_3D_FONT_VARIATIONS}
+
+{ Double precision ----------------------------------------------------------- }
+
+{ Define this to have an additional version of many float routines
+  in CastleVectors, CastleTriangles unit,
+  working on vectors, matrices and triangles with Double precision.
+
+  TODO: X3DFields, and units on top of it, will not compile with
+  CASTLE_HAS_DOUBLE_PRECISION defined now. }
+{$define CASTLE_HAS_DOUBLE_PRECISION}
 
 {$endif not CASTLE_CONF_INCLUDED}

@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -32,7 +32,30 @@ uses SysUtils, Classes, FGL,
   X3DTriangles, X3DFields, CastleGeometryArrays, CastleTriangles,
   CastleMaterialProperties, CastleShapeInternalShadowVolumes;
 
+type
+  TShadowSampling = (ssSimple,
+
+    { Percentage Closer Filtering improve shadow maps look, by sampling
+      the depth map a couple of times. They also make shadow more blurry
+      (increase shadow map size to counteract this), and a little slower.
+      They may also introduce new artifacts (due to bad interaction
+      with the "polygon offset" of shadow map). }
+    ssPCF4, ssPCF4Bilinear, ssPCF16,
+
+    { Variance Shadow Maps, see http://www.punkuser.net/vsm/ .
+      This may generally produce superior
+      results, as shadow maps can be then filtered like normal textures
+      (bilinear, mipmaps, anisotropic filtering). So shadows look much nicer
+      from very close and very far distances.
+      However, this requires new GPU, and may cause artifacts on some scenes. }
+    ssVarianceShadowMaps);
+
 const
+  ShadowSamplingNames: array [TShadowSampling] of string =
+  ( 'Simple', 'PCF 4', 'PCF 4 Bilinear', 'PCF 16', 'Variance Shadow Maps (Experimental)' );
+
+  DefaultShadowSampling = ssPCF16;
+
   { }
   DefLocalTriangleOctreeMaxDepth = 10;
   { Default octree leaf capacity for TShape.OctreeTriangles.
@@ -140,9 +163,15 @@ type
       This looks into all shapes (not only active, so e.g. it looks into all
       Switch/LOD children, not only the chosen one).
 
-      This looks into the Appearance.texture field (and if it's MultiTexture,
-      looks into it's children). Also it looks into shaders textures.
-      Also, for VRML 1.0, looks into LastNodes.Texture2.
+      This looks into the
+
+      @unorderedList(
+        @itemSpacing Compact
+        @item(Appearance.texture field (and if it's MultiTexture,
+          looks into it's children))
+        @item Into shaders textures (GLSL shaders, CommonSurfaceShader...).
+        @item For VRML 1.0, it also looks into VRML1State.Texture2.
+      )
 
       If Enumerate callbacks returns non-nil for some texture, returns it immediately,
       and stops further processing. }
@@ -1113,7 +1142,7 @@ var
   function MaterialOpacity: Single;
   begin
     if G is TAbstractGeometryNode_1 then
-      Result := S.LastNodes.Material.Opacity(0) else
+      Result := S.VRML1State.Material.Opacity(0) else
     if (S.ShapeNode <> nil) and
        (S.ShapeNode.Material <> nil) then
       Result := S.ShapeNode.Material.Opacity else
@@ -1121,25 +1150,41 @@ var
   end;
 
   function TexCoordsNeeded: Cardinal;
+  var
+    Tex: TAbstractTextureNode;
+    SurfaceShader: TCommonSurfaceShaderNode;
   begin
-    if G is TAbstractGeometryNode_1 then
-    begin
-      { We don't want to actually load the texture here,
-        so only check is filename/image set. }
-      if (S.LastNodes.Texture2.FdFilename.Value <> '') or
-         ((S.LastNodes.Texture2.FdImage.Value <> nil) and
-          (not S.LastNodes.Texture2.FdImage.Value.IsEmpty)) then
-        Result := 1 else
-        Result := 0;
-    end else
-    if (S.ShapeNode <> nil) and { for correct VRML >= 2, Shape should be assigned, but secure from buggy models }
-       (S.ShapeNode.Texture <> nil) then
-    begin
-      if S.ShapeNode.Texture is TMultiTextureNode then
-        Result := TMultiTextureNode(S.ShapeNode.Texture).FdTexture.Count else
-        Result := 1;
-    end else
+    Tex := S.DiffuseAlphaTexture;
+
+    if Tex is TMultiTextureNode then
+      Result := TMultiTextureNode(Tex).FdTexture.Count
+    else
+    if Tex <> nil then
+      Result := 1
+    else
       Result := 0;
+
+    { we need at least 1 texture coordinate if some special texture
+      (not necessarily diffuse texture) is used }
+    if (S.ShapeNode <> nil) and
+       (S.ShapeNode.Appearance <> nil) then
+    begin
+      // CommonSurfaceShader can only be non-nil if Appearance is non-nil
+      SurfaceShader := S.ShapeNode.CommonSurfaceShader;
+      if SurfaceShader <> nil then
+      begin
+        if SurfaceShader.NormalTexture <> nil then
+          MaxVar(Result, SurfaceShader.NormalTextureCoordinatesId + 1);
+        if SurfaceShader.AmbientTexture <> nil then
+          MaxVar(Result, SurfaceShader.AmbientTextureCoordinatesId + 1);
+        if SurfaceShader.SpecularTexture <> nil then
+          MaxVar(Result, SurfaceShader.SpecularTextureCoordinatesId + 1);
+        if SurfaceShader.ShininessTexture <> nil then
+          MaxVar(Result, SurfaceShader.ShininessTextureCoordinatesId + 1);
+      end else
+      if S.ShapeNode.Appearance.NormalMap <> nil then
+        MaxVar(Result, 1);
+    end;
 
     if OriginalGeometry.FontTextureNode <> nil then
       Inc(Result);
@@ -1509,7 +1554,7 @@ function TShape.Blending: boolean;
     i: Integer;
   begin
     if Node.FdTransparency.Items.Count = 0 then
-      result := DefaultMaterialTransparency > SingleEqualityEpsilon else
+      result := TMaterialInfo.DefaultTransparency > SingleEqualityEpsilon else
     begin
       for i := 0 to Node.FdTransparency.Items.Count-1 do
         if Node.FdTransparency.Items.L[i] <= SingleEqualityEpsilon then
@@ -1519,13 +1564,21 @@ function TShape.Blending: boolean;
   end;
 
 var
+  SurfaceShader: TCommonSurfaceShaderNode;
   M: TMaterialNode;
   Tex: TAbstractTextureNode;
 begin
   if State.ShapeNode <> nil then
   begin
-    M := State.ShapeNode.Material;
-    Result := (M <> nil) and (M.FdTransparency.Value > SingleEqualityEpsilon);
+    SurfaceShader := State.ShapeNode.CommonSurfaceShader;
+    if SurfaceShader <> nil then
+    begin
+      Result := SurfaceShader.Transparency > SingleEqualityEpsilon;
+    end else
+    begin
+      M := State.ShapeNode.Material;
+      Result := (M <> nil) and (M.FdTransparency.Value > SingleEqualityEpsilon);
+    end;
   end else
     { For VRML 1.0, there may be multiple materials on a node.
       Some of them may be transparent, some not --- we arbitrarily
@@ -1544,7 +1597,7 @@ begin
       for each separate triangle. Or to sort every separate triangle.
       This would obviously get very very slow for models with lots
       of triangles.  }
-    Result := AllMaterialsTransparent(State.LastNodes.Material);
+    Result := AllMaterialsTransparent(State.VRML1State.Material);
 
   if Geometry.ColorRGBA <> nil then
     Result := true;
@@ -1553,7 +1606,7 @@ begin
     Note that State.Texture may be TMultiTextureNode --- that's Ok,
     it has AlphaChannel = atFullRange
     if any child has atFullRange. So it automatically works Ok too. }
-  Tex := State.Texture;
+  Tex := State.DiffuseAlphaTexture;
   if (Tex <> nil) and (Tex.AlphaChannelFinal = acBlending) then
     Result := true;
 
@@ -1764,10 +1817,24 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
 
   function HandleSingleTextureNode(Tex: TX3DNode): Pointer;
   begin
-    if (Tex <> nil) and
-       (Tex is TAbstractTextureNode) then
-      Result := Enumerate(Self, TAbstractTextureNode(Tex)) else
+    if Tex is TAbstractTextureNode then
+      Result := Enumerate(Self, TAbstractTextureNode(Tex))
+    else
       Result := nil;
+  end;
+
+  function HandleIDecls(IDecls: TX3DInterfaceDeclarationList): Pointer; forward;
+
+  function HandleIDecls(Nodes: TX3DNodeList): Pointer;
+  var
+    I: Integer;
+  begin
+    Result := nil;
+    for I := 0 to Nodes.Count - 1 do
+    begin
+      Result := HandleIDecls(Nodes[I].InterfaceDeclarations);
+      if Result <> nil then Exit;
+    end;
   end;
 
   function HandleTextureNode(Tex: TX3DNode): Pointer;
@@ -1776,83 +1843,136 @@ function TShape.EnumerateTextures(Enumerate: TEnumerateShapeTexturesFunction): P
   begin
     Result := nil;
 
-    if (Tex <> nil) and
-       (Tex is TMultiTextureNode) then
+    if Tex is TAbstractTextureNode then
     begin
-      Result := Enumerate(Self, TMultiTextureNode(Tex));
+      { Texture node may use more texture nodes through it's "effects" field. }
+      Result := HandleIDecls(TAbstractTextureNode(Tex).FdEffects.Items);
       if Result <> nil then Exit;
 
-      for I := 0 to TMultiTextureNode(Tex).FdTexture.Items.Count - 1 do
+      if Tex is TMultiTextureNode then
       begin
-        Result := HandleSingleTextureNode(TMultiTextureNode(Tex).FdTexture.Items.Items[I]);
+        Result := Enumerate(Self, TMultiTextureNode(Tex));
         if Result <> nil then Exit;
-      end;
-    end else
-      Result := HandleSingleTextureNode(Tex);
+
+        for I := 0 to TMultiTextureNode(Tex).FdTexture.Items.Count - 1 do
+        begin
+          Result := HandleSingleTextureNode(TMultiTextureNode(Tex).FdTexture.Items.Items[I]);
+          if Result <> nil then Exit;
+        end;
+      end else
+        Result := HandleSingleTextureNode(Tex);
+    end;
   end;
 
   { Scan IDecls for SFNode and MFNode fields, handling texture nodes inside. }
-  function HandleShaderFields(IDecls: TX3DInterfaceDeclarationList): Pointer;
+  function HandleIDecls(IDecls: TX3DInterfaceDeclarationList): Pointer;
   var
     I, J: Integer;
     UniformField: TX3DField;
   begin
     Result := nil;
-    for I := 0 to IDecls.Count - 1 do
-    begin
-      UniformField := IDecls.Items[I].Field;
-
-      if UniformField <> nil then
+    if IDecls <> nil then
+      for I := 0 to IDecls.Count - 1 do
       begin
-        if UniformField is TSFNode then
+        UniformField := IDecls.Items[I].Field;
+
+        if UniformField <> nil then
         begin
-          Result := HandleTextureNode(TSFNode(UniformField).Value);
-          if Result <> nil then Exit;
-        end else
-        if UniformField is TMFNode then
-        begin
-          for J := 0 to TMFNode(UniformField).Count - 1 do
+          if UniformField is TSFNode then
           begin
-            Result := HandleTextureNode(TMFNode(UniformField).Items[J]);
+            Result := HandleTextureNode(TSFNode(UniformField).Value);
             if Result <> nil then Exit;
+          end else
+          if UniformField is TMFNode then
+          begin
+            for J := 0 to TMFNode(UniformField).Count - 1 do
+            begin
+              Result := HandleTextureNode(TMFNode(UniformField).Items[J]);
+              if Result <> nil then Exit;
+            end;
           end;
         end;
       end;
-    end;
+  end;
+
+  function HandleCommonSurfaceShader(SurfaceShader: TCommonSurfaceShaderNode): Pointer;
+  begin
+    Result := HandleTextureNode(SurfaceShader.FdAlphaTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdAmbientTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdDiffuseTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdDiffuseDisplacementTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdDisplacementTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdEmissiveTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdEnvironmentTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdMultiDiffuseAlphaTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdMultiEmmisiveAmbientIntensityTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdMultiSpecularShininessTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdMultiVisibilityTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdNormalTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdReflectionTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdShininessTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdSpecularTexture.Value);
+    if Result <> nil then Exit;
+    Result := HandleTextureNode(SurfaceShader.FdTransmissionTexture.Value);
+    if Result <> nil then Exit;
   end;
 
 var
-  ComposedShader: TComposedShaderNode;
+  SurfaceShader: TCommonSurfaceShaderNode;
   I: Integer;
   App: TAppearanceNode;
+  Lights: TLightInstancesList;
 begin
-  Result := HandleTextureNode(State.LastNodes.Texture2);
+  Result := HandleTextureNode(State.VRML1State.Texture2);
   if Result <> nil then Exit;
 
   if (State.ShapeNode <> nil) and
      (State.ShapeNode.Appearance <> nil) then
   begin
     App := State.ShapeNode.Appearance;
+
     Result := HandleTextureNode(App.FdTexture.Value);
     if Result <> nil then Exit;
 
-    for I := 0 to App.FdShaders.Count - 1 do
+    Result := HandleTextureNode(App.FdNormalMap.Value);
+    if Result <> nil then Exit;
+
+    HandleIDecls(App.FdShaders.Items);
+    HandleIDecls(App.FdEffects.Items);
+
+    { CommonSurfaceShader can be non-nil only when App is non-nil }
+    SurfaceShader := State.ShapeNode.CommonSurfaceShader;
+    if SurfaceShader <> nil then
     begin
-      ComposedShader := App.FdShaders.GLSLShader(I);
-      if ComposedShader <> nil then
-      begin
-        Result := HandleShaderFields(ComposedShader.InterfaceDeclarations);
-        if Result <> nil then Exit;
-      end;
+      HandleCommonSurfaceShader(SurfaceShader);
+      if Result <> nil then Exit;
+    end;
+  end;
+
+  Lights := State.Lights;
+  if Lights <> nil then
+    for I := 0 to Lights.Count - 1 do
+    begin
+      Result := HandleIDecls(Lights.L[I].Node.FdEffects.Items);
+      if Result <> nil then Exit;
     end;
 
-    for I := 0 to App.FdEffects.Count - 1 do
-      if App.FdEffects[I] is TEffectNode then
-      begin
-        Result := HandleShaderFields(TEffectNode(App.FdEffects[I]).InterfaceDeclarations);
-        if Result <> nil then Exit;
-      end;
-  end;
+  if State.Effects <> nil then
+    HandleIDecls(State.Effects);
 
   Result := HandleTextureNode(OriginalGeometry.FontTextureNode);
   if Result <> nil then Exit;
@@ -2161,13 +2281,13 @@ begin
 
   if Node <> nil then
   begin
-    { VRML 2.0/X3D version: refer to TAppearanceNode }
+    { VRML 2.0/X3D version: refer to TAppearanceNode.MaterialProperty }
     if Node.Appearance <> nil then
       Result := Node.Appearance.MaterialProperty;
   end else
   begin
-    { VRML 1.0 version: do it directly here }
-    TextureUrl := State.LastNodes.Texture2.FdFileName.Value;
+    { VRML 1.0 version: calculate it directly here }
+    TextureUrl := State.VRML1State.Texture2.FdFileName.Value;
     if TextureUrl <> '' then
       Result := MaterialProperties.FindTextureBaseName(
         DeleteURIExt(ExtractURIName(TextureUrl)));

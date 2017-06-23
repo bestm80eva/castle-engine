@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -149,7 +149,7 @@ function ParseXMLNode(Element: TDOMElement;
     FieldIndex: Integer;
     PositionInParent: Integer;
   begin
-    X3DType := Element.TagName;
+    X3DType := Element.TagName8;
 
     if X3DType = 'ProtoInstance' then
     begin

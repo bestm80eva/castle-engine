@@ -1,5 +1,5 @@
 {
-  Copyright 2015-2016 Michalis Kamburelis.
+  Copyright 2015-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -52,27 +52,10 @@ type
       @item(In your main Android library lpr file, you need to export
         the JNI function @code(Java_net_sourceforge_castleengine_MainActivity_jniMessage)
         defined in this unit.
-        So change your xxx_android.lpr file from
 
-        @longCode(#
-          library xxx;
-          uses CastleAndroidNativeAppGlue, Game;
-          exports
-            ANativeActivity_onCreate;
-          end.
-        #)
-
-        to this:
-
-        @longCode(#
-          library xxx;
-          uses CastleAndroidNativeAppGlue, Game, CastleMessaging;
-          exports
-            Java_net_sourceforge_castleengine_MainActivity_jniMessage,
-            ANativeActivity_onCreate;
-          end.
-        #)
-
+        It's simplest to just define the @code(game_units) attribute
+        in @code(CastleEngineManifest.xml), and the build tool automatically
+        generate a proper Android library code.
       )
     )
 
@@ -136,11 +119,18 @@ var
 procedure TMessageReceivedEventList.ExecuteAll(const Received: TCastleStringList);
 var
   I: Integer;
-  Handled: boolean;
+  EventResult, Handled: boolean;
 begin
   Handled := false;
   for I := 0 to Count - 1 do
-    Handled := Items[I](Received) or Handled;
+  begin
+    { Use EventResult to workaround FPC 3.1.1 bug (reproducible
+      with FPC SVN revision 35460 (from 2016-02-20) on Linux x86_64).
+      The bug has since been fixed http://bugs.freepascal.org/view.php?id=31421 ,
+      so we may remove this workaround soon. }
+    EventResult := Items[I](Received);
+    Handled := EventResult or Handled;
+  end;
   if not Handled then
     WritelnWarning('JNI', 'Unhandled message from Java:' + NL + Received.Text);
 end;

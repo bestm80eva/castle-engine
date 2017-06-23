@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -156,7 +156,7 @@ begin
   { Render_BindMaterial_1 set unlit color to emissiveColor,
     so correct it now to diffuseColor. }
   Arrays.HasDefaultColor := true;
-  Arrays.DefaultColor := State.LastNodes.Material.DiffuseColor4Single(0);
+  Arrays.DefaultColor := State.VRML1State.Material.DiffuseColor4Single(0);
 end;
 
 procedure TPointSet_1Generator.PrepareIndexesPrimitives;
@@ -222,7 +222,7 @@ end;
 
 procedure TPointSetGenerator.GenerateCoordinateBegin;
 var
-  Material: TMaterialNode;
+  M: TMaterialInfo;
 begin
   inherited;
 
@@ -232,17 +232,11 @@ begin
   if Arrays.Color = nil then
   begin
     Arrays.HasDefaultColor := true;
-    if State.ShapeNode = nil then
-    begin
-      WritelnWarning('VRML/X3D', 'PointSet in VRML >= 2.0 must be specified only inside Shape.geometry (but it''s not)');
+    M := State.MaterialInfo;
+    if M <> nil then
+      Arrays.DefaultColor := Vector4Single(M.EmissiveColor, MaterialOpacity)
+    else
       Arrays.DefaultColor := Vector4Single(WhiteRGB, MaterialOpacity);
-    end else
-    begin
-      Material := State.ShapeNode.Material;
-      if Material <> nil then
-        Arrays.DefaultColor := Vector4Single(Material.FdEmissiveColor.Value, MaterialOpacity) else
-        Arrays.DefaultColor := Vector4Single(WhiteRGB, MaterialOpacity);
-    end;
   end;
 end;
 
@@ -589,10 +583,10 @@ constructor TTriangleStripSetGenerator.Create(AShape: TShape; AOverTriangulate: 
     TexCoordIndex := ANode.FdTextureCoordIndex;
 
     MaterialIndex := ANode.FdMaterialIndex;
-    MaterialBinding := State.LastNodes.MaterialBinding.FdValue.Value;
+    MaterialBinding := State.VRML1State.MaterialBinding.FdValue.Value;
     UpdateMat1Implementation;
 
-    SH := State.LastNodes.ShapeHints;
+    SH := State.VRML1State.ShapeHints;
 
     { W tym miejscu uznajemy VERTORDER_UNKNOWN_ORDERING za COUNTERCLOCKWISE
       (a autorzy VRMLi w ogole nie powinni podawac normali jesli
@@ -604,10 +598,10 @@ constructor TTriangleStripSetGenerator.Create(AShape: TShape; AOverTriangulate: 
       (SH.FdShapeType.Value = SHTYPE_SOLID);
 
     NormalIndex := ANode.FdNormalIndex;
-    Normals := State.LastNodes.Normal.FdVector.Items;
+    Normals := State.VRML1State.Normal.FdVector.Items;
     NormalsCcw := VRML1FrontFaceCcw;
     NorImplementation := NorImplementationFromVRML1Binding(
-      State.LastNodes.NormalBinding.FdValue.Value);
+      State.VRML1State.NormalBinding.FdValue.Value);
   end;
 
 begin
@@ -1065,15 +1059,15 @@ begin
   TexCoordIndex := Node.FdTextureCoordIndex;
 
   MaterialIndex := Node.FdMaterialIndex;
-  MaterialBinding := State.LastNodes.MaterialBinding.FdValue.Value;
+  MaterialBinding := State.VRML1State.MaterialBinding.FdValue.Value;
   UpdateMat1Implementation;
 
   NormalIndex := Node.FdNormalIndex;
-  Normals := State.LastNodes.Normal.FdVector.Items;
+  Normals := State.VRML1State.Normal.FdVector.Items;
   NormalsCcw :=
-    State.LastNodes.ShapeHints.FdVertexOrdering.Value <> VERTORDER_CLOCKWISE;
+    State.VRML1State.ShapeHints.FdVertexOrdering.Value <> VERTORDER_CLOCKWISE;
   NorImplementation := NorImplementationFromVRML1Binding(
-    State.LastNodes.NormalBinding.FdValue.Value);
+    State.VRML1State.NormalBinding.FdValue.Value);
 end;
 
 { TLineSetGenerator --------------------------------------------------------- }
@@ -1106,7 +1100,7 @@ end;
 
 procedure TLineSetGenerator.GenerateCoordinateBegin;
 var
-  Material: TMaterialNode;
+  M: TMaterialInfo;
 begin
   inherited;
 
@@ -1121,16 +1115,10 @@ begin
   if Color = nil then
   begin
     Arrays.HasDefaultColor := true;
-    if State.ShapeNode = nil then
-    begin
-      WritelnWarning('VRML/X3D', 'LineSet in VRML >= 2.0 must be specified only inside Shape.geometry (but it''s not)');
-      Arrays.DefaultColor := Vector4Single(WhiteRGB, MaterialOpacity)
-    end else
-    begin
-      Material := State.ShapeNode.Material;
-      if Material <> nil then
-        Arrays.DefaultColor := Vector4Single(Material.FdEmissiveColor.Value, MaterialOpacity) else
-        Arrays.DefaultColor := Vector4Single(WhiteRGB, MaterialOpacity)
-    end;
+    M := State.MaterialInfo;
+    if M <> nil then
+      Arrays.DefaultColor := Vector4Single(M.EmissiveColor, MaterialOpacity)
+    else
+      Arrays.DefaultColor := Vector4Single(WhiteRGB, MaterialOpacity);
   end;
 end;

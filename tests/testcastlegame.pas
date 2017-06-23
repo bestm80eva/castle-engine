@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -85,7 +85,7 @@ begin
   AssertTrue(C.Flying = true);
   AssertTrue(C.SoundDieTiedToCreature = true);
   AssertFloat(C.DefaultMaxLife, 5.6);
-  AssertFloat(C.Radius, 7.8);
+  AssertFloat(C.RadiusOverride, 7.8);
   AssertFloat(C.MiddleHeight, 6.7);
   AssertSound(C.SoundSuddenPain, 'test_sound_6');
   AssertSound(C.SoundDie, 'test_sound_7');

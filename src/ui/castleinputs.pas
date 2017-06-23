@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -531,7 +531,7 @@ begin
     itKey        : Result := IsKey(Event.Key, Event.KeyCharacter);
     itMouseButton: Result := IsMouseButton(Event.MouseButton);
     itMouseWheel : Result := IsMouseWheel(Event.MouseWheel);
-    else EInternalError.Create('TInputShortcut.IsEvent: Event.EventType?');
+    else raise EInternalError.Create('TInputShortcut.IsEvent: Event.EventType?');
   end;
 end;
 

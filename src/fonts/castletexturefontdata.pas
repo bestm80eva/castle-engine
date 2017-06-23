@@ -1,5 +1,5 @@
 {
-  Copyright 2014-2016 Michalis Kamburelis.
+  Copyright 2014-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -21,9 +21,17 @@ unit CastleTextureFontData;
 interface
 
 uses FGL,
-  CastleVectors, CastleUnicode, CastleStringUtils, CastleImages;
+  CastleVectors, CastleUnicode, CastleStringUtils, CastleImages,
+  CastleInternalFreeType;
 
 type
+  { Raised by
+    @link(TTextureFontData.Create) or
+    @link(TTextureFont.Create TTextureFont.Create(URL, ...)) or
+    @link(TTextureFont.Load TTextureFont.Load(URL, ...)) when
+    the freetype library cannot be found, and thus font files cannot be read. }
+  EFreeTypeLibraryNotFound = CastleInternalFreeType.EFreeTypeLibraryNotFound;
+
   { Data for a 2D font initialized from a FreeType font file, like ttf. }
   TTextureFontData = class
   public
@@ -70,17 +78,18 @@ type
     FRowHeight, FRowHeightBase, FDescend: Integer;
     procedure Measure(out ARowHeight, ARowHeightBase, ADescend: Integer);
   public
-    {$ifdef HAS_FREE_TYPE}
     { Create by reading a FreeType font file, like ttf.
 
       Providing charaters list as @nil means that we only create glyphs
       for SimpleAsciiCharacters, which includes only the basic ASCII characters.
       The ACharacters instance @italic(does not) become owned by this object,
-      so remember to free it after calling this constructor. }
+      so remember to free it after calling this constructor.
+
+      @raises EFreeTypeLibraryNotFound If the freetype library is not installed. }
     constructor Create(const URL: string;
       const ASize: Integer; const AnAntiAliased: boolean;
       ACharacters: TUnicodeCharList = nil);
-    {$endif}
+
     { Create from a ready data for glyphs and image.
       Useful when font data is embedded inside the Pascal source code.
       AGlyphs instance, and AImage instance, become owned by this class. }
@@ -129,7 +138,7 @@ type
 
 implementation
 
-uses SysUtils, {$ifdef HAS_FREE_TYPE} CastleFreeType, CastleFtFont, {$endif}
+uses SysUtils, CastleInternalFtFont,
   CastleLog, CastleUtils, CastleURIUtils;
 
 { TTextureFontData.TGlyphDictionary ------------------------------------------ }
@@ -152,8 +161,6 @@ begin
 end;
 
 { TTextureFontData ----------------------------------------------------------------- }
-
-{$ifdef HAS_FREE_TYPE}
 
 constructor TTextureFontData.Create(const URL: string;
   const ASize: Integer; const AnAntiAliased: boolean;
@@ -280,7 +287,7 @@ begin
   FSize := ASize;
   FAntiAliased := AnAntiAliased;
 
-  CastleFtFont.InitEngine;
+  CastleInternalFtFont.InitEngine;
   { By default TFontManager uses DefaultResolution that is OS-dependent
     and does not really have any good reasoninig?
     We set 0, letting FreeType library use good default,
@@ -364,8 +371,6 @@ begin
       FreeAndNil(ACharacters);
   end;
 end;
-
-{$endif}
 
 constructor TTextureFontData.CreateFromData(const AGlyphs: TGlyphDictionary;
   const AImage: TGrayscaleImage;

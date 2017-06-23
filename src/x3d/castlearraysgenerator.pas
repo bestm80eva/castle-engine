@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -203,6 +203,7 @@ type
     FogVolumetricDirection: TVector3Single;
     FogVolumetricVisibilityStart: Single;
     ShapeBumpMappingUsed: boolean;
+    ShapeBumpMappingTextureCoordinatesId: Cardinal;
     OnRadianceTransfer: TRadianceTransferFunction;
     OnVertexColor: TVertexColorFunction;
     { Do we need TGeometryArrays.Faces }
@@ -902,7 +903,7 @@ procedure TAbstractTextureCoordinateGenerator.PrepareAttributes(
   var
     Tex: TAbstractTextureNode;
   begin
-    Tex := State.Texture;
+    Tex := State.DiffuseAlphaTexture;
     Result := (
       (Tex <> nil) and
       ( ( (TexUnit = 0) and IsSingleTexture3D(Tex) )
@@ -1561,9 +1562,10 @@ function TAbstractMaterial1Generator.GetMaterial1Color(
 var
   M: TMaterialNode_1;
 begin
-  M := State.LastNodes.Material;
+  M := State.VRML1State.Material;
   if M.PureEmissive then
-    Result := M.EmissiveColor4Single(MaterialIndex) else
+    Result := M.EmissiveColor4Single(MaterialIndex)
+  else
     Result := M.DiffuseColor4Single(MaterialIndex);
 end;
 
@@ -1777,7 +1779,7 @@ begin
   end;
 
   { If no normals are provided (for VRML 1.0, this means that last Normal
-    node was empty, or it's the default empty node from DefaultLastNodes scen)
+    node was empty, or it's the default empty node from VRML1DefaultState)
     then generate normals. }
   if Normals.Count = 0 then
     Result := niNone;
@@ -2329,9 +2331,9 @@ begin
 
     HasTangentVectors :=
       { calculate TriangleTexCoord }
-      GetTextureCoord(TriangleIndex1, 0, TriangleTexCoord[0]) and
-      GetTextureCoord(TriangleIndex2, 0, TriangleTexCoord[1]) and
-      GetTextureCoord(TriangleIndex3, 0, TriangleTexCoord[2]) and
+      GetTextureCoord(TriangleIndex1, ShapeBumpMappingTextureCoordinatesId, TriangleTexCoord[0]) and
+      GetTextureCoord(TriangleIndex2, ShapeBumpMappingTextureCoordinatesId, TriangleTexCoord[1]) and
+      GetTextureCoord(TriangleIndex3, ShapeBumpMappingTextureCoordinatesId, TriangleTexCoord[2]) and
       { calculate STangent, TTangent }
       CalculateTangent(true , STangent, Triangle3D, TriangleTexCoord) and
       CalculateTangent(false, TTangent, Triangle3D, TriangleTexCoord) and

@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -22,6 +22,8 @@
     FTextureImage: TEncodedImage;
     FTextureComposite: TCompositeImage;
     procedure SetTextureLoaded(const Value: boolean);
+    function GetTextureProperties: TTexturePropertiesNode;
+    procedure SetTextureProperties(const Value: TTexturePropertiesNode);
   protected
     { This does the actual loading of texture data.
 
@@ -45,11 +47,14 @@
 
     private FFdTextureProperties: TSFNode;
     public property FdTextureProperties: TSFNode read FFdTextureProperties;
+    { Texture properties (how the texture behaves when sampled, and such). }
+    property TextureProperties: TTexturePropertiesNode
+      read GetTextureProperties write SetTextureProperties;
 
     { Load and unload 3D texture.
 
       When loading, we will try to set TextureImage and TextureComposite.
-      If loading is successfull, TextureImage will be always set to non-nil
+      If loading is successful, TextureImage will be always set to non-nil
       (TextureComposite will be set to non-nil only if image came from some
       composite (DDS, KTX...) image).
       If loading failed, both TextureImage and TextureComposite will be @nil.
@@ -247,6 +252,19 @@ begin
 
     FTextureLoaded := Value;
   end;
+end;
+
+function TAbstractTexture3DNode.GetTextureProperties: TTexturePropertiesNode;
+begin
+  if FdTextureProperties.Value is TTexturePropertiesNode then
+    Result := TTexturePropertiesNode(FdTextureProperties.Value)
+  else
+    Result := nil;
+end;
+
+procedure TAbstractTexture3DNode.SetTextureProperties(const Value: TTexturePropertiesNode);
+begin
+  FdTextureProperties.Send(Value);
 end;
 
 procedure TComposedTexture3DNode.CreateNode;

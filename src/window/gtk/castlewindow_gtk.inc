@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -55,7 +55,7 @@ private
   GLContext: PGdkGLContext;
   GLDrawable: PGdkGLDrawable;
 
-  { These things are inited only when (MainMenu <> nil) and (not Closed). }
+  { These things are initialized only when (MainMenu <> nil) and (not Closed). }
   window_vbox: PGtkVBox;
   window_accel_group: PGtkAccelGroup;
 
@@ -172,17 +172,17 @@ private
   XDisplayGdk: PGdkDisplay;
   XScreenGdk: PGdkScreen;
 
-  { Check XDisplayGdk. Call this once you're sure that XDisplayName is set to
-    value desired by used now. See castlewindow_xlib.inc for comments about
-    this, it's used here for analogous reasons.
+  { Initialize X display, calling gtk_init, gtk_gl_init, calculating
+    XDisplayGdk and XScreenGdk.
 
-    This initializes XDisplayGdk, XScreenGdk.
+    Call this only once you're sure that XDisplayName is set to
+    a value desired by used (so, after parsing command-line parameters).
 
-    You should call this when you know that XDisplayName is finally set.
-    Good choice is before initializing your window.
-
-    TODO: actually, gtk initializes x display at gtk_init time already.
-    It looks like --display works only because GTK parses this command-line option too? }
+    Also, call this only when necessary, when you need to open a window
+    (or get the screen parameters, like Application.ScreenWidth / ScreenHeight).
+    This way, our GUI tools can perform a subset of their functionality
+    (e.g. respond to --help or --version) even in a headless mode
+    (without X server running). }
   procedure InitializeXDisplay;
 
   {$ifdef CASTLE_WINDOW_USE_XF86VMODE}
@@ -353,6 +353,8 @@ begin
   1: mb := mbLeft;
   2: mb := mbMiddle;
   3: mb := mbRight;
+  8: mb := mbExtra1;
+  9: mb := mbExtra2;
   else Exit(false);
  end;
  Result := true;
@@ -1120,7 +1122,7 @@ begin
  if (GTK_REALIZED and GTK_WIDGET_FLAGS( GTK_WIDGET(WindowGtk) )) = 0 then
   raise EInternalError.Create('CastleWindow.OpenBackend: GdkWindow not realized yet');
 
- { These must be inited only when I'm sure that window is realized.
+ { These must be initialized only when I'm sure that window is realized.
    I checked this even in gtkglext sources:
    yes, gtk_widget_get_gl_drawable and gtk_widget_get_gl_context check
    and always return nil if their widget is not realized. }
@@ -1186,6 +1188,9 @@ end;
 
 procedure TCastleWindowCustom.CreateBackend;
 begin
+  { We don't do here anything, and thus it doesn't require calling
+    Application.InitializeXDisplay. This way, merely calling
+    TCastleWindowCustom.Create doesn't require X server runnning. }
 end;
 
 { TCastleWindowCustom.*Dialog --------------------------------------------------- }
@@ -1731,38 +1736,7 @@ begin
 end;
 
 procedure TCastleApplication.CreateBackend;
-{$ifdef DARWIN}
-const
-  AltXDisplayName = ':0';
-var
-  AltDisplay: PGdkDisplay;
 begin
-  if not gtk_init_check(@argc, @argv) then
-  begin
-    AltDisplay := gdk_display_open(PChar(AltXDisplayName));
-
-    if AltDisplay <> nil then
-    begin
-      Writeln(ErrOutput, 'Opening the default X display failed, retrying with "',
-         AltXDisplayName, '" to try to attach to running X server on Mac OS X.');
-      gdk_display_manager_set_default_display(gdk_display_manager_get(), AltDisplay);
-      gtk_init(@argc, @argv);
-
-      { if success, update XDisplayName to the one actually used }
-      XDisplayName := AltXDisplayName;
-    end else
-    begin
-      Writeln(ErrOutput, 'Opening X display failed (tried both the default, and "', AltXDisplayName, '"). Start X server first.');
-      Halt(1);
-    end;
-  end;
-  {$else}
-begin
-  gtk_init(@argc, @argv);
-  {$endif}
-
-  gtk_gl_init(@argc, @argv);
-
   inherited Initialize; // set Terminated := false
 end;
 
@@ -1833,11 +1807,56 @@ end;
 {$endif}
 
 procedure TCastleApplication.InitializeXDisplay;
+
+  {$ifdef DARWIN}
+  { Replacement for gtk_init on Darwin, to try harder to attach to a running
+    X server on Mac OS X. }
+  procedure DarwinGtkInit;
+  const
+    AltXDisplayName = ':0';
+  var
+    AltDisplay: PGdkDisplay;
+  begin
+    if not gtk_init_check(@argc, @argv) then
+    begin
+      AltDisplay := gdk_display_open(PChar(AltXDisplayName));
+
+      if AltDisplay <> nil then
+      begin
+        Writeln(ErrOutput, 'Opening the default X display failed, retrying with "',
+           AltXDisplayName, '" to try to attach to running X server on Mac OS X.');
+        gdk_display_manager_set_default_display(gdk_display_manager_get(), AltDisplay);
+        gtk_init(@argc, @argv);
+
+        { if success, update XDisplayName to the one actually used }
+        XDisplayName := AltXDisplayName;
+      end else
+      begin
+        Writeln(ErrOutput, 'Opening X display failed (tried both the default, and "', AltXDisplayName, '"). Start X server first.');
+        Halt(1);
+      end;
+    end;
+  end;
+  {$endif}
+
 begin
   if not InitializeXDisplayDone then
   begin
+    { TODO: Old comment suggested that GTK initializes X display at gtk_init,
+      parsing --display on it's own. Confirm?
+      It should work anyway. }
+
+    {$ifdef DARWIN}
+    DarwinGtkInit;
+    {$else}
+    gtk_init(@argc, @argv);
+    {$endif}
+
+    gtk_gl_init(@argc, @argv);
+
     if XDisplayName <> '' then
-      XDisplayGdk := gdk_display_open(PChar(XDisplayName)) else
+      XDisplayGdk := gdk_display_open(PChar(XDisplayName))
+    else
       XDisplayGdk := gdk_display_get_default();
 
     XScreenGdk := gdk_display_get_default_screen(XDisplayGdk);

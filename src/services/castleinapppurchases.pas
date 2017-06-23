@@ -1,5 +1,5 @@
 {
-  Copyright 2015-2016 Michalis Kamburelis.
+  Copyright 2015-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -104,7 +104,7 @@ type
     To include the necessary integration code in your Android project,
     declare your Android project type as "integrated" with
     the "google_in_app_purchases" component inside CastleEngineManifest.xml.
-    See https://github.com/castle-engine/castle-engine/wiki/Android-Project-Components-Integrated-with-Castle-Game-Engine .
+    See https://github.com/castle-engine/castle-engine/wiki/Android-Project-Services-Integrated-with-Castle-Game-Engine .
 
     @bold(You have to create the products to purchase, and their prices in various
     currencies, in the Google Developer Console.) The names of products
@@ -179,7 +179,7 @@ type
     procedure Purchase(const AProduct: TInAppProduct);
 
     { Initiate a consumption of a consumable item.
-      You should listen on a "successfull consumption" (override
+      You should listen on a "successful consumption" (override
       @link(SuccessfullyConsumed)
       method and/or watch @link(TInAppProduct.SuccessfullyConsumed))
       until you actually act on the consumption (increase player gold or such). }
@@ -251,7 +251,7 @@ end;
 
 procedure TInAppPurchases.ReinitializeJavaActivity(Sender: TObject);
 begin
-  { in case Java activity got killed and is created again, reinitialize components }
+  { in case Java activity got killed and is created again, reinitialize services }
   if FLastAvailableProducts <> '' then
     Messaging.Send(['in-app-purchases-set-available-products', FLastAvailableProducts]);
 end;

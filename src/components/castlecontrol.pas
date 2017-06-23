@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -18,6 +18,10 @@
 unit CastleControl;
 
 {$I castleconf.inc}
+
+{ Define this for new Lazarus that has TCustomOpenGLControl.RenderAtDesignTime
+  (see issue https://bugs.freepascal.org/view.php?id=32026 ). }
+{ $define HAS_RENDER_AT_DESIGN_TIME}
 
 interface
 
@@ -233,6 +237,9 @@ type
     property DepthBits;
     property StencilBits;
     property AUXBuffers;
+    {$ifdef HAS_RENDER_AT_DESIGN_TIME}
+    property RenderAtDesignTime;
+    {$endif}
     property OnChangeBounds;
     property OnConstrainedResize;
     property OnDblClick;

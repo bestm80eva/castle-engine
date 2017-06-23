@@ -1,5 +1,5 @@
 {
-  Copyright 2015-2016 Michalis Kamburelis.
+  Copyright 2015-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -61,9 +61,9 @@ type
 
       @item(To include the necessary integration code in your Android project,
         declare your Android project type as "integrated" with
-        the appropriate components (admob, chartboost, startapp, heyzap...)
+        the appropriate services (admob, chartboost, startapp, heyzap...)
         inside CastleEngineManifest.xml .
-        See https://github.com/castle-engine/castle-engine/wiki/Android-Project-Components-Integrated-with-Castle-Game-Engine .)
+        See https://github.com/castle-engine/castle-engine/wiki/Android-Project-Services-Integrated-with-Castle-Game-Engine .)
     )
   }
   TAds = class(TComponent)

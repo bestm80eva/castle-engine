@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -114,7 +114,7 @@ function ColorToVector3Byte(const Color: TColor): TVector3Byte;
 
 implementation
 
-uses SysUtils, LazUTF8, FileUtil, LCLType, LCLProc,
+uses SysUtils, FileUtil, LazUTF8, LCLType, LCLProc,
   CastleClassUtils, CastleStringUtils, CastleURIUtils, CastleLog;
 
 procedure FileFiltersToDialog(const FileFilters: string;
@@ -414,6 +414,8 @@ begin
     Controls.mbLeft  : MyMouseButton := CastleKeysMouse.mbLeft;
     Controls.mbRight : MyMouseButton := CastleKeysMouse.mbRight;
     Controls.mbMiddle: MyMouseButton := CastleKeysMouse.mbMiddle;
+    Controls.mbExtra1: MyMouseButton := CastleKeysMouse.mbExtra1;
+    Controls.mbExtra2: MyMouseButton := CastleKeysMouse.mbExtra2;
     else Result := false;
   end;
 end;

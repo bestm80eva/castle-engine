@@ -1,5 +1,5 @@
 {
-  Copyright 2004-2016 Michalis Kamburelis.
+  Copyright 2004-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -30,7 +30,7 @@ type
 implementation
 
 uses X3DNodes, CastleSceneCore, CastleScene, CastleBoxes, CastleVectors,
-  CastleRays;
+  CastleRays, CastleProjection;
 
 procedure TTestScene.TestScene;
 

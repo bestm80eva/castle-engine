@@ -1,5 +1,5 @@
 {
-  Copyright 2006-2016 Michalis Kamburelis.
+  Copyright 2006-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -127,9 +127,12 @@ procedure WriteLogMultiline(const Category: string; const Message: string); depr
   or @link(TCastleWindowCustom.MessageOK)).
   Or by raising an exception, if you want to be strict about warnings. }
 procedure WritelnWarning(const Category: string; const Message: string);
+procedure WritelnWarning(const Message: string);
 
 { A shortcut for @code(WritelnWarning(Category, Format(MessageBase, Args))). }
 procedure WritelnWarning(const Category: string; const MessageBase: string;
+  const Args: array of const);
+procedure WritelnWarning(const MessageBase: string;
   const Args: array of const);
 
 var
@@ -307,9 +310,10 @@ begin
   begin
     if LogTimePrefix <> ltNone then WriteLogRaw(LogTimePrefixStr + NL);
     WriteLogRaw(
-        '-------------------- ' + Category + ' begin' + NL +
-        Trim(Message) + NL +
-        '-------------------- ' + Category + ' end' + NL)
+      '-------------------- ' + Category + ' begin' + NL +
+      // trim newlines at the end of Message
+      TrimRight(Message) + NL +
+      '-------------------- ' + Category + ' end' + NL)
   end;
 end;
 
@@ -319,10 +323,21 @@ begin
   ApplicationProperties._Warning(Category, Message);
 end;
 
+procedure WritelnWarning(const Message: string);
+begin
+  WritelnWarning(ApplicationName, Message);
+end;
+
 procedure WritelnWarning(const Category: string; const MessageBase: string;
   const Args: array of const);
 begin
   WritelnWarning(Category, Format(MessageBase, Args));
+end;
+
+procedure WritelnWarning(const MessageBase: string;
+  const Args: array of const);
+begin
+  WritelnWarning(ApplicationName, MessageBase, Args);
 end;
 
 finalization

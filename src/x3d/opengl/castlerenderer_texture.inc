@@ -11,19 +11,8 @@
     { Calculate things from TextureProperties node.
       If TextureProperties = @nil, they are taken from defaults
       (possibly in Attributes). }
-    procedure HandleTexturePropertiesCore(
-      TextureProperties: TTexturePropertiesNode;
-      out Filter: TTextureFilter; out Anisotropy: TGLfloat; out GUITexture: boolean);
-
-    { Calculate things from TextureProperties node.
-      If TextureProperties = @nil or not of TTexturePropertiesNode class,
-      they are taken from defaults (possibly in Attributes).
-
-      This is useful when interpreting VRML/X3D files,
-      as you have no guarantee user didn't place there some disallowed node
-      in "textureProperties" field. }
     procedure HandleTextureProperties(
-      TextureProperties: TX3DNode;
+      TextureProperties: TTexturePropertiesNode;
       out Filter: TTextureFilter; out Anisotropy: TGLfloat; out GUITexture: boolean);
 
     { Decide if this class can handle given texture Node. }
@@ -167,14 +156,6 @@
     function Enable(ANode: TAbstractTextureNode;
       const TextureUnit: Cardinal;
       Shader: TShader; const Env: TTextureEnv): boolean;
-
-    { Prepare / unprepare all textures inside Node.InterfaceDeclarations
-      SFNode / MFNode fields. }
-    procedure PrepareInterfaceDeclarationsTextures(const ANode: TX3DNode;
-      const State: TX3DGraphTraverseState;
-      const Renderer: TGLRenderer);
-    procedure UnprepareInterfaceDeclarationsTextures(const ANode: TX3DNode;
-      const Renderer: TGLRenderer);
   end;
 
   { Common class for all single (not multi-texture) texture nodes.
@@ -185,7 +166,7 @@
   protected
     { Determines should texture mode be suited for RGB and grayscale texture.
       Default false, you should set this in descendant
-      (latest possibility is to set this is a successfull Enable call,
+      (latest possibility is to set this is a successful Enable call,
       but usually you want to do it in a Prepare call).
       You can set it by SetTextureRGBFromImage. }
     TextureRGB: boolean;
@@ -221,13 +202,22 @@
       var TextureSlotsUsed: Cardinal; Shader: TShader); override;
   end;
 
+  { Handler for 2D textures that have a corresponding OpenGL resource. }
+  TGL2DTextureNode = class(TGLSingleTextureNode)
+  public
+    { OpenGL texture identifier.
+      It may be 0 if the texture was initialized successfully. }
+    function GLName: TGLTextureId; virtual; abstract;
+  end;
+
   { Handler for TAbstractTexture2DNode with image (not a video). }
-  TGLImageTextureNode = class(TGLSingleTextureNode)
+  TGLImageTextureNode = class(TGL2DTextureNode)
+  strict private
+    FGLName: TGLuint;
   protected
     class function IsClassForTextureNode(ANode: TAbstractTextureNode): boolean; override;
     procedure PrepareCore(State: TX3DGraphTraverseState); override;
   public
-    GLName: TGLuint;
     NormalMap, HeightMap: TGLuint;
     HeightMapScale: Single;
 
@@ -237,16 +227,15 @@
     function Bind(const TextureUnit: Cardinal): boolean; override;
     function Enable(const TextureUnit: Cardinal;
       Shader: TShader; const Env: TTextureEnv): boolean; override;
+    function GLName: TGLTextureId; override;
   end;
 
-  TGLMovieTextureNode = class(TGLSingleTextureNode)
+  TGLMovieTextureNode = class(TGL2DTextureNode)
   protected
     class function IsClassForTextureNode(ANode: TAbstractTextureNode): boolean; override;
     procedure PrepareCore(State: TX3DGraphTraverseState); override;
   public
     GLVideo: TGLVideo3D;
-
-    function GLName: TGLTextureId;
 
     function TextureNode: TMovieTextureNode;
 
@@ -254,17 +243,17 @@
     function Bind(const TextureUnit: Cardinal): boolean; override;
     function Enable(const TextureUnit: Cardinal;
       Shader: TShader; const Env: TTextureEnv): boolean; override;
+    function GLName: TGLTextureId; override;
   end;
 
-  TGLRenderedTextureNode = class(TGLSingleTextureNode)
-  private
+  TGLRenderedTextureNode = class(TGL2DTextureNode)
+  strict private
+    FGLName: TGLuint;
     RenderToTexture: TGLRenderToTexture;
   protected
     class function IsClassForTextureNode(ANode: TAbstractTextureNode): boolean; override;
     procedure PrepareCore(State: TX3DGraphTraverseState); override;
   public
-    GLName: TGLuint;
-
     { The actual decided image size and mipmap status. }
     Width, Height: Cardinal;
     NeedsMipmaps: boolean;
@@ -276,6 +265,7 @@
     function Bind(const TextureUnit: Cardinal): boolean; override;
     function Enable(const TextureUnit: Cardinal;
       Shader: TShader; const Env: TTextureEnv): boolean; override;
+    function GLName: TGLTextureId; override;
 
     procedure Update(
       const Render: TRenderFromViewFunction;
@@ -360,18 +350,17 @@
       Shader: TShader; const Env: TTextureEnv): boolean; override;
   end;
 
-  TGLGeneratedShadowMap = class(TGLSingleTextureNode)
-  private
+  TGLGeneratedShadowMap = class(TGL2DTextureNode)
+  strict private
     RenderToTexture: TGLRenderToTexture;
     { VarianceShadowMaps calculated at the PrepareCore time. }
     VarianceShadowMaps: boolean;
     NeedsMipmaps: boolean;
+    FGLName: TGLuint;
   protected
     class function IsClassForTextureNode(ANode: TAbstractTextureNode): boolean; override;
     procedure PrepareCore(State: TX3DGraphTraverseState); override;
   public
-    GLName: TGLuint;
-
     { The right size of the texture,
       that satisfies all OpenGL sizes requirements. }
     Size: Cardinal;
@@ -386,6 +375,7 @@
     function Bind(const TextureUnit: Cardinal): boolean; override;
     function Enable(const TextureUnit: Cardinal;
       Shader: TShader; const Env: TTextureEnv): boolean; override;
+    function GLName: TGLTextureId; override;
 
     procedure Update(
       const Render: TRenderFromViewFunction;
@@ -441,98 +431,47 @@ begin
   inherited;
 end;
 
-procedure TGLTextureNode.HandleTexturePropertiesCore(
+procedure TGLTextureNode.HandleTextureProperties(
   TextureProperties: TTexturePropertiesNode;
   out Filter: TTextureFilter; out Anisotropy: TGLfloat; out GUITexture: boolean);
 
-  function StrToMinFilter(S: string): TMinificationFilter;
+  { Convert TAutoMinificationFilter to TMinificationFilter,
+    resolving the "default"/"fastest"/"nicest" aliases to specific values. }
+  function FinalMinificationFilter(const FilterAuto: TAutoMinificationFilter): TMinificationFilter;
   begin
-    S := UpperCase(S);
-
-    if S = 'AVG_PIXEL' then Result := minLinear else
-    if S = 'AVG_PIXEL_AVG_MIPMAP' then Result := minLinearMipmapLinear else
-    if S = 'AVG_PIXEL_NEAREST_MIPMAP' then Result := minLinearMipmapNearest else
-    if S = 'NEAREST_PIXEL_AVG_MIPMAP' then Result := minNearestMipmapLinear else
-    if S = 'NEAREST_PIXEL_NEAREST_MIPMAP' then Result := minNearestMipmapNearest else
-    if S = 'NEAREST_PIXEL' then Result := minNearest else
-
-    if S = 'DEFAULT' then Result := Renderer.Attributes.MinificationFilter else
-
-    if S = 'FASTEST' then Result := minNearest else
-    if S = 'NICEST' then Result := minLinearMipmapLinear else
-
-    if S = 'NEAREST' then
-    begin
-      WritelnWarning('VRML/X3D', Format('"%s" is not allowed texture minification, this is an InstantReality extension, please fix to "NEAREST_PIXEL"', [S]));
-      Result := minNearest;
-    end else
-
-    if S = 'LINEAR' then
-    begin
-      WritelnWarning('VRML/X3D', Format('"%s" is not allowed texture minification, this is an InstantReality extension, please fix to "AVG_PIXEL"', [S]));
-      Result := minLinear;
-    end else
-
-    begin
-      Result := Renderer.Attributes.MinificationFilter;
-      WritelnWarning('VRML/X3D', Format('Unknown texture minification filter "%s"', [S]));
+    case FilterAuto of
+      minDefault: Result := Renderer.Attributes.MinificationFilter;
+      minFastest: Result := minNearest;
+      minNicest : Result := minLinearMipmapLinear;
+      else        Result := FilterAuto;
     end;
   end;
 
-  function StrToMagFilter(S: string): TMagnificationFilter;
+  { Convert TAutoMagnificationFilter to TMagnificationFilter,
+    resolving the "default"/"fastest"/"nicest" aliases to specific values. }
+  function FinalMagnificationFilter(const FilterAuto: TAutoMagnificationFilter): TMagnificationFilter;
   begin
-    S := UpperCase(S);
-
-    if S = 'AVG_PIXEL' then Result := magLinear else
-    if S = 'NEAREST_PIXEL' then Result := magNearest else
-
-    if S = 'DEFAULT' then Result := Renderer.Attributes.MagnificationFilter else
-
-    if S = 'FASTEST' then Result := magNearest else
-    if S = 'NICEST' then Result := magLinear else
-
-    if S = 'NEAREST' then
-    begin
-      WritelnWarning('VRML/X3D', Format('"%s" is not allowed texture magnification, this is an InstantReality extension, please fix to "NEAREST_PIXEL"', [S]));
-      Result := magNearest;
-    end else
-
-    if S = 'LINEAR' then
-    begin
-      WritelnWarning('VRML/X3D', Format('"%s" is not allowed texture magnification, this is an InstantReality extension, please fix to "AVG_PIXEL"', [S]));
-      Result := magLinear;
-    end else
-
-    begin
-      Result := Renderer.Attributes.MagnificationFilter;
-      WritelnWarning('VRML/X3D', Format('Unknown texture minification filter "%s"', [S]));
+    case FilterAuto of
+      magDefault: Result := Renderer.Attributes.MagnificationFilter;
+      magFastest: Result := magNearest;
+      magNicest : Result := magLinear;
+      else        Result := FilterAuto;
     end;
   end;
 
-begin { HandleTextureProperties }
+begin
   if TextureProperties <> nil then
   begin
-    Filter.Minification := StrToMinFilter(TextureProperties.FdMinificationFilter.Value);
-    Filter.Magnification := StrToMagFilter(TextureProperties.FdMagnificationFilter.Value);
-    Anisotropy := TextureProperties.FdAnisotropicDegree.Value;
-    GUITexture := TextureProperties.FdGUITexture.Value;
+    Filter.Minification := FinalMinificationFilter(TextureProperties.MinificationFilter);
+    Filter.Magnification := FinalMagnificationFilter(TextureProperties.MagnificationFilter);
+    Anisotropy := TextureProperties.AnisotropicDegree;
+    GUITexture := TextureProperties.GUITexture;
   end else
   begin
     Filter := Renderer.Attributes.TextureFilter;
     Anisotropy := 1;
     GUITexture := false;
   end;
-end { HandleTextureProperties };
-
-procedure TGLTextureNode.HandleTextureProperties(
-  TextureProperties: TX3DNode;
-  out Filter: TTextureFilter; out Anisotropy: TGLfloat; out GUITexture: boolean);
-begin
-  if (TextureProperties = nil) or
-     not (TextureProperties is TTexturePropertiesNode) then
-    HandleTexturePropertiesCore(nil, Filter, Anisotropy, GUITexture) else
-    HandleTexturePropertiesCore(TTexturePropertiesNode(TextureProperties),
-      Filter, Anisotropy, GUITexture);
 end;
 
 class function TGLTextureNode.ClassForTextureNode(
@@ -645,83 +584,6 @@ begin
   Result := GLTextureNode <> nil;
   if Result then
     Result := GLTextureNode.Enable(TextureUnit, Shader, Env);
-end;
-
-procedure TGLTextureNodes.PrepareInterfaceDeclarationsTextures(
-  const ANode: TX3DNode;
-  const State: TX3DGraphTraverseState; const Renderer: TGLRenderer);
-
-  { If TextureNode <> @nil and is a texture node, prepare it. }
-  procedure PrepareTexture(TextureNode: TX3DNode);
-  begin
-    if (TextureNode <> nil) and
-       (TextureNode is TAbstractTextureNode) then
-      Prepare(State, TAbstractTextureNode(TextureNode), Renderer);
-  end;
-
-var
-  I, J: Integer;
-  UniformField: TX3DField;
-  IDecls: TX3DInterfaceDeclarationList;
-begin
-  IDecls := ANode.InterfaceDeclarations;
-  if IDecls = nil then Exit; { ignore nodes without interface declararations }
-
-  for I := 0 to IDecls.Count - 1 do
-  begin
-    UniformField := IDecls.Items[I].Field;
-
-    if UniformField <> nil then
-    begin
-      if UniformField is TSFNode then
-      begin
-        PrepareTexture(TSFNode(UniformField).Value);
-      end else
-      if UniformField is TMFNode then
-      begin
-        for J := 0 to TMFNode(UniformField).Count - 1 do
-          PrepareTexture(TMFNode(UniformField)[J]);
-      end;
-    end;
-  end;
-end;
-
-procedure TGLTextureNodes.UnprepareInterfaceDeclarationsTextures(
-  const ANode: TX3DNode; const Renderer: TGLRenderer);
-
-  { If TextureNode <> @nil and is a texture node, prepare it. }
-  procedure UnprepareTexture(TextureNode: TX3DNode);
-  begin
-    if (TextureNode <> nil) and
-       (TextureNode is TAbstractTextureNode) then
-      Renderer.GLTextureNodes.Unprepare(TAbstractTextureNode(TextureNode));
-  end;
-
-var
-  I, J: Integer;
-  UniformField: TX3DField;
-  IDecls: TX3DInterfaceDeclarationList;
-begin
-  IDecls := ANode.InterfaceDeclarations;
-  if IDecls = nil then Exit; { ignore nodes without interface declararations }
-
-  for I := 0 to IDecls.Count - 1 do
-  begin
-    UniformField := IDecls.Items[I].Field;
-
-    if UniformField <> nil then
-    begin
-      if UniformField is TSFNode then
-      begin
-        UnprepareTexture(TSFNode(UniformField).Value);
-      end else
-      if UniformField is TMFNode then
-      begin
-        for J := 0 to TMFNode(UniformField).Count - 1 do
-          UnprepareTexture(TMFNode(UniformField)[J]);
-      end;
-    end;
-  end;
 end;
 
 { TGLSingleTextureNode ------------------------------------------------------- }
@@ -1025,7 +887,7 @@ var
 begin
   { HandledNode already made sure IsTextureImage = @true }
 
-  HandleTexturePropertiesCore(TextureNode.TextureProperties,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   TextureWrap[0] := TextureRepeatToGL(TextureNode.RepeatS);
@@ -1033,7 +895,7 @@ begin
 
   SetTextureRGBFromImage(TextureNode.TextureImage);
 
-  GLName := Renderer.Cache.TextureImage_IncReference(
+  FGLName := Renderer.Cache.TextureImage_IncReference(
     TextureNode.TextureImage,
     TextureNode.TextureUsedFullUrl,
     TextureNode,
@@ -1046,20 +908,20 @@ end;
 
 procedure TGLImageTextureNode.Unprepare;
 begin
-  if GLName <> 0 then
+  if FGLName <> 0 then
   begin
-    Renderer.Cache.TextureImage_DecReference(GLName);
-    GLName := 0;
+    Renderer.Cache.TextureImage_DecReference(FGLName);
+    FGLName := 0;
   end;
 end;
 
 function TGLImageTextureNode.Bind(const TextureUnit: Cardinal): boolean;
 begin
-  Result := GLName <> 0;
+  Result := FGLName <> 0;
   if not Result then Exit;
 
   Renderer.ActiveTexture(TextureUnit);
-  glBindTexture(GL_TEXTURE_2D, GLName);
+  glBindTexture(GL_TEXTURE_2D, FGLName);
 end;
 
 function TGLImageTextureNode.Enable(const TextureUnit: Cardinal;
@@ -1069,6 +931,11 @@ begin
   if not Result then Exit;
 
   Shader.EnableTexture(TextureUnit, tt2D, TextureNode, Env);
+end;
+
+function TGLImageTextureNode.GLName: TGLTextureId;
+begin
+  Result := FGLName;
 end;
 
 { TGLMovieTextureNode -------------------------------------------------------- }
@@ -1102,7 +969,7 @@ var
 begin
   { HandledNode already made sure IsTextureVideo = @true }
 
-  HandleTexturePropertiesCore(TextureNode.TextureProperties,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   TextureWrap[0] := TextureRepeatToGL(TextureNode.RepeatS);
@@ -1196,7 +1063,7 @@ var
   GUITexture: boolean;
   Sizing: TTextureSizing;
 begin
-  HandleTextureProperties(TextureNode.FdTextureProperties.Value,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   { calculate Filter, Anisotropy, NeedsMipmaps }
@@ -1252,7 +1119,7 @@ begin
       Exit;
     end;
 
-    GLName := Renderer.Cache.TextureDepth_IncReference(
+    FGLName := Renderer.Cache.TextureDepth_IncReference(
       TextureNode, TextureWrap, nil, Width, Height, false);
   end else
   begin
@@ -1266,7 +1133,7 @@ begin
         updated. }
       InitialImage.Clear(Vector4Byte(255, 0, 255, 255));
 
-      GLName := Renderer.Cache.TextureImage_IncReference(
+      FGLName := Renderer.Cache.TextureImage_IncReference(
         InitialImage,
         '',
         TextureNode,
@@ -1286,7 +1153,7 @@ begin
   end;
 
   RenderToTexture := TGLRenderToTexture.Create(Width, Height);
-  RenderToTexture.SetTexture(GLName, GL_TEXTURE_2D);
+  RenderToTexture.SetTexture(FGLName, GL_TEXTURE_2D);
   if DepthMap then
     RenderToTexture.Buffer := tbDepth else
     RenderToTexture.Buffer := tbColor;
@@ -1306,22 +1173,22 @@ procedure TGLRenderedTextureNode.Unprepare;
 begin
   FreeAndNil(RenderToTexture);
 
-  if GLName <> 0 then
+  if FGLName <> 0 then
   begin
     if DepthMap then
-      Renderer.Cache.TextureDepth_DecReference(GLName) else
-      Renderer.Cache.TextureImage_DecReference(GLName);
-    GLName := 0;
+      Renderer.Cache.TextureDepth_DecReference(FGLName) else
+      Renderer.Cache.TextureImage_DecReference(FGLName);
+    FGLName := 0;
   end;
 end;
 
 function TGLRenderedTextureNode.Bind(const TextureUnit: Cardinal): boolean;
 begin
-  Result := GLName <> 0;
+  Result := FGLName <> 0;
   if not Result then Exit;
 
   Renderer.ActiveTexture(TextureUnit);
-  glBindTexture(GL_TEXTURE_2D, GLName);
+  glBindTexture(GL_TEXTURE_2D, FGLName);
 end;
 
 function TGLRenderedTextureNode.Enable(const TextureUnit: Cardinal;
@@ -1375,63 +1242,58 @@ var
       AngleOfViewY := AdjustViewAngleDegToAspectRatio(
         AngleOfViewX, Height / Width);
 
-      Result := PerspectiveProjMatrixDeg(AngleOfViewY, Width / Height,
+      Result := PerspectiveProjectionMatrixDeg(AngleOfViewY, Width / Height,
         ProjectionNear, ProjectionFar);
     end;
 
     procedure DoOrthographic;
     var
       FieldOfView: TSingleList;
-      FinalFieldOfView: TVector4Single;
+      FinalFieldOfView: TFloatRectangle;
     begin
       { default VRML/X3D fov }
-      FinalFieldOfView[0] := -1;
-      FinalFieldOfView[1] := -1;
-      FinalFieldOfView[2] :=  1;
-      FinalFieldOfView[3] :=  1;
+      FinalFieldOfView.Left   := -1;
+      FinalFieldOfView.Bottom := -1;
+      FinalFieldOfView.Width  :=  2;
+      FinalFieldOfView.Height :=  2;
 
       { update left / right / bottom / top using OrthoViewpoint.fieldOfView }
       if (Viewpoint <> nil) and
          (Viewpoint is TOrthoViewpointNode) then
       begin
         FieldOfView := TOrthoViewpointNode(Viewpoint).FdFieldOfView.Items;
-        if FieldOfView.Count > 0 then FinalFieldOfView[0] := FieldOfView.Items[0];
-        if FieldOfView.Count > 1 then FinalFieldOfView[1] := FieldOfView.Items[1];
-        if FieldOfView.Count > 2 then FinalFieldOfView[2] := FieldOfView.Items[2];
-        if FieldOfView.Count > 3 then FinalFieldOfView[3] := FieldOfView.Items[3];
+        if FieldOfView.Count > 0 then FinalFieldOfView.Left   := FieldOfView.Items[0];
+        if FieldOfView.Count > 1 then FinalFieldOfView.Bottom := FieldOfView.Items[1];
+        if FieldOfView.Count > 2 then FinalFieldOfView.Width  := FieldOfView.Items[2] - FinalFieldOfView.Left;
+        if FieldOfView.Count > 3 then FinalFieldOfView.Height := FieldOfView.Items[3] - FinalFieldOfView.Bottom;
       end else
       if (Viewpoint <> nil) and
          (Viewpoint is TOrthographicCameraNode_1) then
       begin
-        FinalFieldOfView[0] := -TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
-        FinalFieldOfView[1] := -TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
-        FinalFieldOfView[2] :=  TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
-        FinalFieldOfView[3] :=  TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
+        FinalFieldOfView.Left   := -TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
+        FinalFieldOfView.Bottom := -TOrthographicCameraNode_1(Viewpoint).FdHeight.Value / 2;
+        FinalFieldOfView.Width  :=  TOrthographicCameraNode_1(Viewpoint).FdHeight.Value;
+        FinalFieldOfView.Height :=  TOrthographicCameraNode_1(Viewpoint).FdHeight.Value;
       end;
 
       TOrthoViewpointNode.AspectFieldOfView(FinalFieldOfView, Width / Height);
 
-      Result := OrthoProjMatrix(
-        { Beware: order of OrthoViewpoint.fieldOfView (and FinalFieldOfView)
-          is different than typical OpenGL and our OrthoProjMatrix. }
-        FinalFieldOfView[0],
-        FinalFieldOfView[2],
-        FinalFieldOfView[1],
-        FinalFieldOfView[3],
-        ProjectionNear, ProjectionFar);
+      Result := OrthoProjectionMatrix(FinalFieldOfView, ProjectionNear, ProjectionFar);
     end;
 
   var
     ProjectionType: TProjectionType;
   begin
     if Viewpoint <> nil then
-      ProjectionType := Viewpoint.ProjectionType else
+      ProjectionType := Viewpoint.ProjectionType
+    else
       ProjectionType := ptPerspective;
 
     case ProjectionType of
       ptPerspective: DoPerspective;
       ptOrthographic: DoOrthographic;
-      else EInternalError.Create('TGLRenderedTextureNode.Update-ProjectionType?');
+      ptFrustum: raise EInternalError.Create('TGLRenderedTextureNode.Update: X3D Viewpoint node should not be able to specify ptFrustum projection');
+      else raise EInternalError.Create('TGLRenderedTextureNode.Update-ProjectionType?');
     end;
   end;
 
@@ -1474,7 +1336,7 @@ var
   CameraMatrix, CameraRotationMatrix, SavedProjectionMatrix, NewProjectionMatrix: TMatrix4Single;
   Pos, Dir, Up: TVector3Single;
 begin
-  if GLName = 0 then Exit;
+  if FGLName = 0 then Exit;
 
   { calculate Viewpoint }
   if (TextureNode.FdViewpoint.Value <> nil) and
@@ -1519,6 +1381,11 @@ begin
   TextureNode.EventRendering.Send(false);
 
   NeedsRestoreViewport := true;
+end;
+
+function TGLRenderedTextureNode.GLName: TGLTextureId;
+begin
+  Result := FGLName;
 end;
 
 { TGLCubeMapTextureNode ------------------------------------------------------ }
@@ -1587,7 +1454,7 @@ begin
     Exit;
   end;
 
-  HandleTextureProperties(TextureNode.FdTextureProperties.Value,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   try
@@ -1653,7 +1520,7 @@ begin
 
   try
 
-    HandleTextureProperties(TextureNode.FdTextureProperties.Value,
+    HandleTextureProperties(TextureNode.TextureProperties,
       Filter, Anisotropy, GUITexture);
 
     { TODO: this is a quick and dirty method:
@@ -1705,7 +1572,7 @@ begin
     Exit;
   end;
 
-  HandleTextureProperties(TextureNode.FdTextureProperties.Value,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   { calculate Filter, Anisotropy, NeedsMipmaps }
@@ -1845,7 +1712,7 @@ begin
     Setting TextureLoaded already did necessary WritelnWarnings. }
   if TextureNode.TextureImage = nil then Exit;
 
-  HandleTextureProperties(TextureNode.FdTextureProperties.Value,
+  HandleTextureProperties(TextureNode.TextureProperties,
     Filter, Anisotropy, GUITexture);
 
   { calculate TextureWrap }
@@ -1956,7 +1823,7 @@ begin
 
   if VarianceShadowMaps then
   begin
-    GLName := Renderer.Cache.TextureFloat_IncReference(
+    FGLName := Renderer.Cache.TextureFloat_IncReference(
       TextureNode, Filter, TextureWrap, Size, Size, true);
   end else
   begin
@@ -1966,13 +1833,13 @@ begin
       Exit;
     end;
 
-    GLName := Renderer.Cache.TextureDepth_IncReference(
+    FGLName := Renderer.Cache.TextureDepth_IncReference(
       TextureNode, TextureWrap, TextureNode.FdCompareMode, Size, Size,
       VisualizeDepthMap);
   end;
 
   RenderToTexture := TGLRenderToTexture.Create(Size, Size);
-  RenderToTexture.SetTexture(GLName, GL_TEXTURE_2D);
+  RenderToTexture.SetTexture(FGLName, GL_TEXTURE_2D);
   if VarianceShadowMaps then
     RenderToTexture.Buffer := tbColor else
     RenderToTexture.Buffer := tbDepth;
@@ -1984,22 +1851,22 @@ procedure TGLGeneratedShadowMap.Unprepare;
 begin
   FreeAndNil(RenderToTexture);
 
-  if GLName <> 0 then
+  if FGLName <> 0 then
   begin
     if VarianceShadowMaps then
-      Renderer.Cache.TextureFloat_DecReference(GLName) else
-      Renderer.Cache.TextureDepth_DecReference(GLName);
-    GLName := 0;
+      Renderer.Cache.TextureFloat_DecReference(FGLName) else
+      Renderer.Cache.TextureDepth_DecReference(FGLName);
+    FGLName := 0;
   end;
 end;
 
 function TGLGeneratedShadowMap.Bind(const TextureUnit: Cardinal): boolean;
 begin
-  Result := GLName <> 0;
+  Result := FGLName <> 0;
   if not Result then Exit;
 
   Renderer.ActiveTexture(TextureUnit);
-  glBindTexture(GL_TEXTURE_2D, GLName);
+  glBindTexture(GL_TEXTURE_2D, FGLName);
 end;
 
 function TGLGeneratedShadowMap.Enable(const TextureUnit: Cardinal;
@@ -2021,7 +1888,7 @@ var
   NewProjectionMatrix, SavedProjectionMatrix: TMatrix4Single;
   SavedDepthRange: TDepthRange;
 begin
-  if GLName = 0 then Exit;
+  if FGLName = 0 then Exit;
 
   { Render view for shadow map }
   NewProjectionMatrix := Light.ProjectionMatrix;
@@ -2076,6 +1943,11 @@ begin
     RenderToTexture.GenerateMipmap;
 
   NeedsRestoreViewport := true;
+end;
+
+function TGLGeneratedShadowMap.GLName: TGLTextureId;
+begin
+  Result := FGLName;
 end;
 
 { TGLShaderTexture ------------------------------------------------------ }

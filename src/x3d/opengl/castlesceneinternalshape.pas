@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -87,7 +87,7 @@ begin
 
   if Changes * [chTextureImage, chTextureRendererProperties] <> [] then
   begin
-    Renderer.UnprepareTexture(State.Texture);
+    Renderer.UnprepareTexture(State.DiffuseAlphaTexture);
     PreparedForRenderer := false;
     PreparedUseBlending := false;
     SchedulePrepareResources;

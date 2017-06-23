@@ -1,5 +1,5 @@
 {
-  Copyright 2002-2016 Michalis Kamburelis.
+  Copyright 2002-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -22,7 +22,7 @@ type
 { Return the version of used libpng library
   (taken by querying png_access_version_number).
   They raise ELibPngNotAvailable exception if libpng library
-  was not available (not CastlePngInited) or if version of libpng
+  was not available (not CastlePngInitialized) or if version of libpng
   library is incompatible with interface defined in KamiPng unit.
 
   So these functions actually not only return version of libpng,
@@ -38,8 +38,8 @@ function SO_PNG_LIBPNG_VER_MINOR: Integer; forward;
 function SO_PNG_LIBPNG_VER_RELEASE: Integer; forward;
 { @groupEnd }
 
-{ Use all functions below ONLY when CastlePngInited = true
-  (often comfortable way to check CastlePngInited is to call
+{ Use all functions below ONLY when CastlePngInitialized = true
+  (often comfortable way to check CastlePngInitialized is to call
   one of SO_xxx functions above). }
 
 { }
@@ -72,7 +72,7 @@ function PngTextCompressionToStr(PngTextCompression: longint): string; forward;
 
 var
   { Call InitializePNG to set these variables }
-  fSO_VER_STRING: AnsiString;
+  fSO_VER_STRING: string;
   fSO_VER_MAJOR, fSO_VER_MINOR, fSO_VER_RELEASE: integer;
 
 procedure Check_SO_VER;
@@ -85,7 +85,7 @@ procedure Check_SO_VER;
   libpng wedlug mnie testowalo za ostro wersje biblioteki. Wiec tutaj
   chcemy robic sprawdzanie wersji mniej restrykcyjne.}
 begin
- if not CastlePngInited then
+ if not CastlePngInitialized then
   raise ELibPngNotAvailable.Create('LibPng (or it''s dependency, ZLib) is not available. Make sure that the dynamic libraries for LibPng and ZLib are installed (or placed alongside the exe file on Windows).');
 
  if fSO_VER_MAJOR <> 1 then
@@ -538,7 +538,7 @@ procedure InitializePNG;
 var
   ver: png_uint_32;
 begin
-  if CastlePngInited then
+  if CastlePngInitialized then
   begin
     ver := png_access_version_number();
     fSO_VER_RELEASE := ver mod 100;

@@ -1,5 +1,5 @@
 {
-  Copyright 2009-2016 Michalis Kamburelis.
+  Copyright 2009-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -87,7 +87,7 @@ begin
   glDisable(GL_DEPTH_TEST);
   GLEnableTexture(CastleGLUtils.etNone);
   CastleGLUtils.glViewport(ViewportRect);
-  OrthoProjection(0, ViewportRect.Width, 0, ViewportRect.Height);
+  OrthoProjection(FloatRectangle(0, 0, ViewportRect.Width, ViewportRect.Height));
 
   { Set OpenGL state that may be changed carelessly, and has some
     guaranteed value, for Render2d calls. }

@@ -1,5 +1,5 @@
 {
-  Copyright 2003-2016 Michalis Kamburelis.
+  Copyright 2003-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -173,8 +173,8 @@ function ALDataFormatToStr(DataFormat: TALuint): string;
 
 implementation
 
-uses CastleStringUtils, CastleVorbisDecoder, CastleVorbisFile, CastleLog,
-  CastleDownload, CastleURIUtils;
+uses CastleStringUtils, CastleInternalVorbisDecoder, CastleInternalVorbisFile,
+  CastleLog, CastleDownload, CastleURIUtils;
 
 { TSoundFile ----------------------------------------------------------------- }
 
@@ -365,7 +365,7 @@ class function TSoundOggVorbis.VorbisMethod: string;
 begin
   if alIsExtensionPresent('AL_EXT_vorbis') then
     Result := 'AL_EXT_vorbis extension' else
-  if VorbisFileInited then
+  if VorbisFileInitialized then
     Result := 'vorbisfile library' else
     Result := 'none';
 end;
@@ -485,7 +485,7 @@ begin
     if IdCompare(Header.ID, 'data') then
     begin
       if Data <> nil then
-        raise EInvalidWAV.Create('WAV file must not contain mulitple data chunks');
+        raise EInvalidWAV.Create('WAV file must not contain multiple data chunks');
       { calculate FDataSize and FData (and FData^) }
       FDataSize := Header.Len;
       FData := GetMem(DataSize);

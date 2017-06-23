@@ -7,13 +7,18 @@
 # Later: pdf now removed, useless and ugly.
 default: html
 
-# Run "make" in ../logo/ first,
+# Run "make" in logo/ first,
 # if you have inkscape installed,
 # and you want to regenerate logo from png.
+#
+# Run "make" in html-parts/ first,
+# if you have cge-www repository (https://github.com/castle-engine/cge-www)
+# cloned and placed as a sibling to castle-engine, in ../../../cge-www/
 
 html:
 	./mk_docs.sh html
-	cp ../logo/castle_game_engine_icon.png html/
+	mv html ../reference/
+	cp logo/castle_game_engine_icon.png ../reference/
 
 # Just some shortcuts to "Helpful targets" below
 pdf: latex/docs.pdf
@@ -60,7 +65,7 @@ clean-cache:
 	rm -fR cache/
 
 clean: clean-cache
-	rm -Rf html/ latex/ latex2rtf/
+	rm -Rf html/ latex/ latex2rtf/ ../reference/
 
 # upload ---------------------------------------------------------------------
 
@@ -77,6 +82,7 @@ SCP_OPTIONS=
 # uploading separate HTML files.
 .PHONY: upload
 upload: clean html
-	tar czvf html.tar.gz html/
+	mv ../reference/ html
+	tar czvf html.tar.gz html
 	scp $(SCP_OPTIONS) -r html.tar.gz $(SF_CONNECT)
 	./sf_upload_finalize.sh $(SF_USERNAME) $(SF_PATH)

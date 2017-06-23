@@ -1,5 +1,5 @@
 {
-  Copyright 2008-2016 Michalis Kamburelis.
+  Copyright 2008-2017 Michalis Kamburelis.
 
   This file is part of "Castle Game Engine".
 
@@ -33,6 +33,8 @@
 }
 
 {$ifdef read_interface}
+  TGeoOriginNode = class;
+
   { }
   TGeoCoordinateNode = class(TAbstractCoordinateNode)
   public
